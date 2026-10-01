@@ -1151,8 +1151,64 @@ def ui_state():
     return d.svg()
 
 
+def key_exchange():
+    """Orthogonal sequence diagram of the symmetric key-signing dance."""
+    d = D(1100, 730, "Key-signing dance between two devices")
+    ax, bx = 330, 820
+    mid = (ax + bx) / 2
+    # lifelines first so boxes and arrows sit on top
+    d.line([(ax, 64), (ax, 712)], "lead")
+    d.line([(bx, 64), (bx, 712)], "lead")
+    for x, name in ((ax, "Device A"), (bx, "Device B")):
+        d.rrect(x - 70, 20, 140, 44, 8, "st")
+        d.text(x, 48, name, "stn", "middle")
+
+    def phase(y0, y1, title, sub):
+        d.line([(20, y0), (1080, y0)], "dimw")
+        d.text(20, y0 + 22, title, "tf")
+        d.text(20, y0 + 38, sub, "ts")
+
+    def arrow(y, label, both=False, sub=None):
+        d.line([(ax, y), (bx, y)], "w", "both" if both else "end")
+        d.text(mid, y - 7, label, "ts", "middle")
+        if sub:
+            d.text(mid, y + 16, sub, "ts", "middle")
+
+    def box(x, yc, name, lines):
+        h = 22 + 14 * len(lines)
+        d.rrect(x - 105, yc - h / 2, 210, h, 8, "st")
+        d.text(x, yc - h / 2 + 17, name, "stn", "middle")
+        for i, l in enumerate(lines):
+            d.text(x, yc - h / 2 + 33 + i * 14, l, "sts", "middle")
+
+    phase(84, 0, "1  Scan", "QR on screen, camera")
+    arrow(120, "A shows its QR and B scans it: fingerprint, nonce, BLE address")
+    arrow(176, "B shows its QR and A scans it: the same")
+    d.line([(20, 206), (1080, 206)], "dimw")
+    phase(206, 0, "2  Exchange", "over BLE")
+    arrow(246, "Public key, checked against the scanned fingerprint", True)
+    arrow(302, "Proof of key possession (signed nonce)", True)
+    d.line([(20, 332), (1080, 332)], "dimw")
+    phase(332, 0, "3  Confirm", "each person")
+    for x in (ax, bx):
+        box(x, 392, "HumanCheck", ["name and fingerprint shown", "met, or ID checked"])
+    d.line([(20, 452), (1080, 452)], "dimw")
+    phase(452, 0, "4  Approve", "each person")
+    for x in (ax, bx):
+        box(x, 500, "Approval gate", ["PTT hold + fingerprint"])
+    d.line([(20, 548), (1080, 548)], "dimw")
+    phase(548, 0, "5  Certify", "each device")
+    for x in (ax, bx):
+        box(x, 592, "Sign", ["only the confirmed names"])
+    d.line([(20, 630), (1080, 630)], "dimw")
+    phase(630, 0, "6  Return", "over BLE")
+    arrow(672, "Certification of the other's key", True)
+    d.text(mid, 702, "Each owner imports and publishes the certification they receive.", "ts", "middle")
+    return d.svg()
+
+
 DIAGRAMS = {
-    "system": system, "ui_state": ui_state, "ui_screens": ui_screens, "mech_v1": mech_v1, "stackup": stackup, "v0_sheet_a": v0_sheet_a, "v0_sheet_b": v0_sheet_b, "context": context, "power": power, "overview": overview, "camera": camera, "display": display, "buttons": buttons,
+    "system": system, "key_exchange": key_exchange, "ui_state": ui_state, "ui_screens": ui_screens, "mech_v1": mech_v1, "stackup": stackup, "v0_sheet_a": v0_sheet_a, "v0_sheet_b": v0_sheet_b, "context": context, "power": power, "overview": overview, "camera": camera, "display": display, "buttons": buttons,
     "i2c": i2c, "fingerprint": fingerprint, "usbhost": usbhost, "usbbroker": usbbroker, "sdcards": sdcards, "usbc": usbc, "haptic": haptic,
 }
 

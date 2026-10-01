@@ -58,7 +58,7 @@ def layers_html(src):
         if n < len(layers) - 1:
             rows.append('<div class="layer-arrow" aria-hidden="true">&#9660;</div>')
     return ('<div class="layer-stack">' + "".join(rows) +
-            '<div class="text-body-secondary small text-center mt-2">Each layer calls the layer(s) below it.</div></div>')
+            '<div class="text-body-secondary small text-center mt-2">Each layer calls the layers below it. Transports carry host and phone requests up to the application services.</div></div>')
 
 def stash_mermaid(m):
     src = m.group(1)
