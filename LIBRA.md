@@ -177,7 +177,7 @@ Everything the device uses to talk to you, to other people, or to a computer.
 | **Screen** (2.0" 240x320 IPS) | Output | Trusted display of what you are approving, QR codes, TOTP codes, menus | v0 |
 | **D-pad** | Input | Move through lists, scroll details, choose among options | v0 |
 | **Select** | Input | Open or choose the highlighted item (navigation) | v0 |
-| **Back** | Input | Cancel, deny, go up, lock | v0 |
+| **Back** | Input | Cancel, deny, go up (with PTT: lock) | v0 |
 | **PTT** (top edge) | Input | Tap: harmless action (show my QR). Hold: commit (unlock, approve, confirm) | v0 |
 | **Camera** (rear) | Input | Scan QR codes: OTP enrolment, peer keys, transaction requests | v0 |
 | **Fingerprint module** (back) | Input | Convenience unlock and presence check, never the key protector | v0 (required) |
@@ -354,7 +354,7 @@ secure element if fitted, and you. Everything else is treated as hostile or faul
 
 | Mode | When | What works | What is blocked |
 |---|---|---|---|
-| Locked | Power-up, idle timeout, Back long-press | Unlock (PIN) | Everything that uses keys |
+| Locked | Power-up, idle timeout, PTT + Back | Unlock (PIN) | Everything that uses keys |
 | Standalone | No data host connected (in v0, USB used only for power) | QR scanning, OATH codes, key exchange and signing, settings | Host-driven functions |
 | Key mode | Host connected, unlocked | FIDO2, OpenPGP, OATH; every approval is shown and held on the device | Anything the host asks without approval |
 | Vault mode | Host connected, a Vault card or stick present and unlocked | A virtual encrypted drive (optionally read-only); key mode continues alongside | Access to the card while locked ("media not present") |
@@ -1130,7 +1130,8 @@ host request screen appears; if the time runs out, the host gets a "busy" answer
 |---|---|
 | D-pad | Move through lists, scroll details, pick among options |
 | Select | Open/choose the highlighted item (navigation) |
-| Back | Cancel, deny, go up. Always safe. Long press: return to Idle / lock |
+| Back | Cancel, deny, go up. Always safe. A long press is just Back: locking is PTT + Back, never a hold |
+| PTT + Back together | **Lock now**, from any screen, and deny anything pending. The panic gesture: lock the device before anyone can take it out of your hands. Immediate, so it beats a long press |
 | PTT tap | Harmless action: show my QR |
 | PTT hold | Commit: approve, confirm, connect. A fingerprint is read during the hold (PIN fallback) |
 | Back held at power-on | Settings and recovery |
@@ -1141,7 +1142,8 @@ host request screen appears; if the time runs out, the host gets a "busy" answer
 | PTT tap | Show my QR | n/a | n/a | Show my QR |
 | PTT hold | n/a | Approve (with a fingerprint) | Confirm (with a fingerprint) | Connect to the host, after the unlock |
 | Fingerprint | n/a | Read while PTT is held | Read while PTT is held | Unlocks the card or stick |
-| Back | Lock | Deny | Cancel | Leave it disconnected |
+| Back | n/a | Deny | Cancel | Leave it disconnected |
+| PTT + Back together | Lock now | Lock now, and deny the request | Lock now | Lock now |
 | D-pad | Scroll accounts | Scroll request details | n/a | Toggle read-only |
 | Select | Open account | Show details | n/a | Toggle read-only |
 

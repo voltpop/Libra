@@ -668,7 +668,7 @@ claims marked <span class="badge text-bg-warning verify">verify</span> were not 
 <tr>
 <td><strong>Back</strong></td>
 <td>Input</td>
-<td>Cancel, deny, go up, lock</td>
+<td>Cancel, deny, go up (with PTT: lock)</td>
 <td>v0</td>
 </tr>
 <tr>
@@ -1267,7 +1267,7 @@ secure element if fitted, and you. Everything else is treated as hostile or faul
 <tbody>
 <tr>
 <td>Locked</td>
-<td>Power-up, idle timeout, Back long-press</td>
+<td>Power-up, idle timeout, PTT + Back</td>
 <td>Unlock (PIN)</td>
 <td>Everything that uses keys</td>
 </tr>
@@ -2912,7 +2912,11 @@ host request screen appears; if the time runs out, the host gets a "busy" answer
 </tr>
 <tr>
 <td>Back</td>
-<td>Cancel, deny, go up. Always safe. Long press: return to Idle / lock</td>
+<td>Cancel, deny, go up. Always safe. A long press is just Back: locking is PTT + Back, never a hold</td>
+</tr>
+<tr>
+<td>PTT + Back together</td>
+<td><strong>Lock now</strong>, from any screen, and deny anything pending. The panic gesture: lock the device before anyone can take it out of your hands. Immediate, so it beats a long press</td>
 </tr>
 <tr>
 <td>PTT tap</td>
@@ -2963,10 +2967,17 @@ host request screen appears; if the time runs out, the host gets a "busy" answer
 </tr>
 <tr>
 <td>Back</td>
-<td>Lock</td>
+<td>n/a</td>
 <td>Deny</td>
 <td>Cancel</td>
 <td>Leave it disconnected</td>
+</tr>
+<tr>
+<td>PTT + Back together</td>
+<td>Lock now</td>
+<td>Lock now, and deny the request</td>
+<td>Lock now</td>
+<td>Lock now</td>
 </tr>
 <tr>
 <td>D-pad</td>

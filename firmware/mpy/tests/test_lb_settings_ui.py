@@ -66,10 +66,15 @@ class SettingsMenu(unittest.TestCase):
         r.press("BACK")
         self.assertEqual(r.id, "Idle")
 
-    def test_long_back_still_locks(self):
+    def test_the_chord_locks_from_settings_and_a_long_back_does_not(self):
         r = ready()
         open_settings(r)
         r.hold("BACK", 1100)
+        self.assertNotEqual(r.id, "Locked")  # holding Back is just Back now
+        open_settings(r)
+        r.down("PTT")
+        r.down("BACK")
+        r.run(50)
         self.assertEqual(r.id, "Locked")
 
     def test_time_row_shows_the_time_or_not_set(self):

@@ -104,7 +104,8 @@ class Lock(unittest.TestCase):
         r.unlock()
         r.press("BACK")
         self.assertEqual(r.id, "Idle")  # a short Back on Idle does nothing
-        r.hold("BACK", 1100)
+        r.down("PTT")
+        r.down("BACK")  # the chord is the manual lock
         self.assertEqual(r.id, "Locked")
 
     def test_activity_postpones_lock(self):
@@ -735,7 +736,10 @@ class HostRequests(unittest.TestCase):
         r = ready()
         r.session.request("SIGN", "USB", "Sign x")
         r.run(100)
-        r.hold("BACK", 1100)  # a long Back locks, even mid-request
+        r.down("PTT")
+        r.down("BACK")  # the chord locks, even mid-request
+        r.up("PTT")
+        r.up("BACK")
         r.run(100)
         self.assertEqual(r.id, "Locked")
 
@@ -797,6 +801,116 @@ class Hardening(unittest.TestCase):
         r.hold("PTT", 600)
         self.assertGreater(r.haptic.seq, before)
         self.assertEqual(shot(r)["haptic"]["kind"], "commit")
+
+
+class ChordLock(unittest.TestCase):
+    """PTT and Back together: the fast lock."""
+
+    def idle(self):
+        r = Rig(push_to_show=False)
+        r.unlock()
+        r.run(100)
+        return r
+
+    def test_either_order_locks_at_once_from_idle(self):
+        for first, second in (("PTT", "BACK"), ("BACK", "PTT")):
+            r = self.idle()
+            r.down(first)
+            r.down(second)
+            self.assertEqual(r.session.state(), "LOCKED", first)
+            r.run(50)
+            self.assertEqual(r.id, "Locked")
+
+    def test_the_releases_do_nothing_afterwards(self):
+        r = self.idle()
+        r.down("PTT")
+        r.down("BACK")
+        r.up("PTT")  # a quick PTT release would normally be a tap that shows the QR
+        r.up("BACK")
+        r.run(50)
+        self.assertEqual(r.id, "Locked")
+        self.assertEqual(r.session.state(), "LOCKED")
+
+    def test_it_locks_from_any_screen_and_denies_anything_pending(self):
+        r = self.idle()
+        r.ui.host_set_time(1790944123 * 1000)
+        r.run(100)
+        self.assertEqual(r.id, "HostRequest")
+        r.down("PTT")
+        r.down("BACK")
+        self.assertEqual(r.session.state(), "LOCKED")
+        self.assertIsNone(r.session.pending())
+        self.assertEqual(r.session.last_decision()[1], "CANCELLED")
+        r.up("PTT")
+        r.up("BACK")
+        r.unlock()
+        r.run(100)
+        self.assertNotEqual(r.id, "HostRequest")  # the request did not come back
+
+    def test_stay_unlocked_mode_ends_with_it(self):
+        r = self.idle()
+        r.session.set_keep_unlocked(True)
+        r.down("BACK")
+        r.down("PTT")
+        self.assertFalse(r.session.keep_unlocked())
+
+    def test_on_the_locked_screen_it_does_nothing_special(self):
+        r = Rig(push_to_show=False)
+        r.run(100)
+        r.down("PTT")
+        r.down("BACK")
+        r.up("PTT")
+        r.up("BACK")
+        r.run(50)
+        self.assertEqual(r.session.state(), "LOCKED")
+        r.unlock()  # and the unlock still works: nothing was left swallowed
+        r.run(100)
+        self.assertEqual(r.session.state(), "UNLOCKED")
+
+    def test_after_a_chord_the_buttons_behave_normally_again(self):
+        r = self.idle()
+        r.down("PTT")
+        r.down("BACK")
+        r.up("PTT")
+        r.up("BACK")
+        r.unlock()
+        r.run(100)
+        r.down("PTT")
+        r.run(80)
+        r.up("PTT")  # a PTT tap on Idle shows the QR again
+        r.run(50)
+        self.assertEqual(r.id, "ShowQR")
+
+    def test_back_alone_and_ptt_alone_are_unchanged(self):
+        r = self.idle()
+        r.press("DOWN")
+        r.run(50)
+        self.assertEqual(r.id, "Accounts")
+        r.down("BACK")
+        r.run(60)
+        r.up("BACK")
+        r.run(50)
+        self.assertEqual(r.id, "Idle")  # a short Back still just goes up
+        self.assertEqual(r.session.state(), "UNLOCKED")
+        r.hold("BACK", 1100)
+        r.run(50)
+        self.assertEqual(r.session.state(), "UNLOCKED")  # a long Back no longer locks: only the chord does
+        self.assertEqual(r.id, "Idle")
+
+    def test_back_pressed_while_holding_ptt_is_the_chord_and_locks(self):
+        # it used to deny the request and stay unlocked; now it locks at once, which denies it too
+        r = self.idle()
+        r.ui.host_set_time(1790944123 * 1000)
+        r.run(100)
+        r.down("PTT")
+        r.run(300)
+        r.press("BACK")
+        r.run(100)
+        self.assertEqual(r.session.state(), "LOCKED")
+        self.assertIsNone(r.session.pending())
+        r.up("PTT")
+        r.run(100)
+        self.assertFalse(r.clock.trusted() and r.settings.get("utc_offset_min") != 0)
 
 
 if __name__ == "__main__":

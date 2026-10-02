@@ -8,7 +8,8 @@
 # Screens in this slice: Locked, Idle, ShowQR (placeholder), Accounts, TOTPCode, ConfirmOTP,
 # RevealPrompt, HostRequest, ComboApprove (fingerprint fallback), ShowText, Notice, Wiped.
 #
-# Gestures: D-pad moves, Select opens, Back goes up one level (a long Back locks the device),
+# Gestures: D-pad moves, Select opens, Back goes up one level, and PTT and Back pressed together
+# lock the device at once (the only manual lock: it also denies anything pending),
 # PTT tap = harmless (show my QR), PTT hold = commit. Every consequential action is a request
 # registered with the session and approved by a hold on the request screen.
 
@@ -48,7 +49,6 @@ _HOLD_KIND = {"AUTH": "login", "OATH_REVEAL": "login", "OATH_ADD": "login", "VAU
               "STICK": "login", "SETTING": "login", "SET_TIME": "sign", "SIGN": "sign", "DECRYPT": "sign", "XCH_SIGN": "sign",
               "BACKUP": "sign", "RESTORE": "sign", "RESET": "sign", "MODE": "login", "RESTART": "login", "CONSOLE_RW": "login", "STOP": "login"}
 
-LONG_BACK_MS = 1000
 TAP_MAX_MS = 400
 NOTICE_MS = 3000
 TOAST_MS = 2500
@@ -105,8 +105,9 @@ class UI:
         self._proposal = None  # what the host proposed and is waiting on a hold for (a dict, see host_*)
         oath.set_reveal_all(self._settings.get("push_to_show"))
         self._ptt = False
+        self._held = set()    # buttons currently down (for the PTT+Back chord)
+        self._swallow = set()  # buttons whose release belongs to a chord that already locked
         self._ptt_t = 0
-        self._back_t = 0
         self._last_sec = ticks()
         self._toast = None
         self._toast_until = 0
@@ -184,6 +185,22 @@ class UI:
             return
         self._s.activity()
         now = self._ticks()
+        if down:
+            self._held.add(name)
+        else:
+            self._held.discard(name)
+        if name in ("PTT", "BACK"):
+            if down and "PTT" in self._held and "BACK" in self._held \
+                    and self._s.state() == lb_session.UNLOCKED:
+                self._chord_lock()
+                self._sync()
+                return
+            if not down and name in self._swallow:  # the release of a chord that already locked
+                self._swallow.discard(name)
+                if name == "PTT":
+                    self._ptt = False
+                self._sync()
+                return
         if name == "PTT":
             if down:
                 self._ptt = True
@@ -197,10 +214,8 @@ class UI:
                 elif self._scr == TOTP_CODE and self._d.get("gate"):
                     self._hide_code()
         elif name == "BACK":
-            if down:
-                self._back_t = now
-            else:
-                self._back(lb_ticks.diff(now, self._back_t) >= LONG_BACK_MS)
+            if not down:
+                self._back()
         elif down:
             self._press(name)
             if name in ("UP", "DOWN") and self._scr in (SET_TIME, TIME_ZONE):
@@ -209,6 +224,19 @@ class UI:
         elif name == self._rep_name:
             self._rep_name = None
         self._sync()
+
+    def _chord_lock(self):
+        """PTT and Back together: lock now, from any screen. Anything waiting on the device is
+        denied first (this is the panic gesture), and both releases are swallowed so neither
+        button does its usual thing afterwards."""
+        p = self._s.pending()
+        if p is not None:
+            self._s.cancel(p["id"])
+        self._rep_name = None
+        self._proposal = None
+        self._swallow = {"PTT", "BACK"}
+        self._pulse("success")
+        self._s.lock("CHORD")
 
     def scan(self, payload):
         """The simulated camera delivered a decoded QR payload (bytes)."""
@@ -285,13 +313,10 @@ class UI:
         elif scr == NOTICE and name == "SELECT":
             self._goto(self._d["ret"])
 
-    def _back(self, long_press):
+    def _back(self):
         scr = self._scr
         if scr == LOCKED:
             self._combo = []
-            return
-        if long_press:
-            self._s.lock("BACK")
             return
         if scr in (CONFIRM_OTP, REVEAL, HOST_REQUEST, COMBO_APPROVE, SET_TIME, CONFIRM_SETTING):
             if self._flow is not None:
@@ -931,7 +956,7 @@ class UI:
         elif scr == IDLE:
             title = self._name
             body["name"] = self._name
-            hints = {"select": "Settings", "ptt": "Tap: my QR", "back": "Hold: lock"}
+            hints = {"select": "Settings", "ptt": "Tap: my QR", "back": "+PTT: lock"}
         elif scr == SETTINGS:
             title = "Settings"
             body["rows"] = [{"text": a, "value": b} for a, b in self._settings_rows()]
