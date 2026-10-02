@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libra Simulator</title>
+<style>
+:root{
+  --bg:#f3f4f7; --panel:#ffffff; --ink:#1b1f2a; --muted:#5b6475; --line:#d9dce4; --accent:#1f6feb;
+  --btn:#e8eaf0; --btn-hi:#d6dae5; --danger:#c62828; --ok:#1a7f37;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#12141a; --panel:#1b1e27; --ink:#e6e9f0; --muted:#98a1b3; --line:#2e3340; --accent:#58a6ff;
+    --btn:#2a2f3c; --btn-hi:#3a4152; --danger:#ff7b72; --ok:#56d364;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12141a; --panel:#1b1e27; --ink:#e6e9f0; --muted:#98a1b3; --line:#2e3340; --accent:#58a6ff;
+  --btn:#2a2f3c; --btn-hi:#3a4152; --danger:#ff7b72; --ok:#56d364;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+main{display:flex;flex-wrap:wrap;gap:24px;padding:20px 16px;max-width:1100px;margin:0 auto;align-items:flex-start}
+h1{font-size:16px;margin:0 0 4px}
+h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px}
+.sub{color:var(--muted);font-size:12px;margin:0 0 12px}
+
+/* ---------- the device ---------- */
+.device{background:#2b2f3a;border-radius:22px;padding:14px 16px 18px;width:288px;box-shadow:0 8px 24px rgba(0,0,0,.25);user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.led{position:absolute;right:14px;top:-9px;width:22px;height:22px;border-radius:50%;background:#000;border:2px solid #555;box-shadow:0 0 0 2px #2b2f3a}
+.device{position:relative}
+.ptt{display:block;width:100%;height:44px;margin:0 0 12px;border:0;border-radius:10px;background:#c0392b;color:#fff;font:700 13px/1.2 system-ui;letter-spacing:.1em;cursor:pointer}
+.ptt small,.back small{display:block;font:400 10px/1.3 system-ui;letter-spacing:0;opacity:.85}
+.ptt.on{background:#ff6b57;transform:translateY(1px)}
+.screen{width:240px;height:320px;margin:0 auto;background:#0e1118;color:#e8ecf3;border-radius:6px;position:relative;overflow:hidden;display:flex;flex-direction:column;font-size:14px}
+.sbar{height:22px;display:flex;justify-content:space-between;align-items:center;padding:0 8px;background:#181c27;color:#9aa4b8;font-size:11px}
+.badge{border:1px solid #4b566e;border-radius:4px;padding:0 5px;font-size:10px}
+.ttl{padding:8px 10px 2px;font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.body{flex:1;padding:4px 10px;overflow:hidden;position:relative}
+.ln{padding:2px 0;overflow-wrap:anywhere}
+.ln.dim{color:#9aa4b8;font-size:12px}
+.hints{display:flex;border-top:1px solid #232938;background:#141824;height:40px}
+.hints div{flex:1 1 0;font-size:9px;text-align:center;padding:4px 1px;color:#9aa4b8;line-height:1.25;min-width:0}
+.hints div:nth-child(2){flex:1.5 1 0}
+.hints b{display:block;color:#e8ecf3;font-weight:600;font-size:10px;min-height:12px;white-space:nowrap}
+.toast{position:absolute;left:8px;right:8px;bottom:48px;background:#2d3550;border:1px solid #5a6aa0;border-radius:8px;padding:6px 8px;font-size:12px;text-align:center}
+.dots{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:26px 0 6px;min-height:14px}
+.dots i{width:12px;height:12px;border-radius:50%;background:#5ac8fa;display:block}
+.center{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;gap:6px}
+.row{display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:6px;font-size:13px}
+.row.sel{background:#243252;outline:1px solid #5a7bd0}
+.row.grab{background:#4a3a14;outline:1px solid #e0b040}
+.tgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0 8px}
+.tcell{background:#181c27;border-radius:6px;padding:4px 2px;text-align:center}
+.tcell.sel{background:#243252;outline:1px solid #5a7bd0}
+.tl{font-size:9px;color:#9aa4b8}
+.tv{font:600 16px ui-monospace,Menlo,Consolas,monospace}
+.row .t{margin-left:auto;font-size:10px;color:#9aa4b8;white-space:nowrap}
+.code{font:600 34px/1.1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.05em;text-align:center;margin:18px 0 6px;color:#fff}
+.meta{text-align:center;color:#9aa4b8;font-size:12px;overflow-wrap:anywhere}
+.ring{display:block;margin:10px auto 0}
+.bar{height:8px;background:#232938;border-radius:4px;margin:10px 0 2px;overflow:hidden}
+.bar i{display:block;height:100%;background:#4ade80;width:0}
+.qr{width:112px;height:112px;margin:8px auto;background:repeating-conic-gradient(#e8ecf3 0 25%,#0e1118 0 50%) 0 0/16px 16px;border:6px solid #e8ecf3}
+.wiped{color:#ff7b72}
+
+.pad{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,44px);gap:4px;justify-content:center;margin:14px 0 8px}
+.pad button,.back{border:0;border-radius:10px;background:#454c5e;color:#e8ecf3;font:600 12px system-ui;cursor:pointer}
+.pad button.on,.back.on{background:#6b7590}
+.pad .u{grid-area:1/2}.pad .l{grid-area:2/1}.pad .s{grid-area:2/2;background:#566077}.pad .r{grid-area:2/3}.pad .d{grid-area:3/2}
+.back{display:block;margin:0 auto;width:132px;height:40px;line-height:1.2}
+
+/* ---------- the QA panel ---------- */
+.side{flex:1;min-width:300px;max-width:560px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.side button{background:var(--btn);color:var(--ink);border:0;border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}
+.side button:hover{background:var(--btn-hi)}
+.side button.act{outline:2px solid var(--accent)}
+.side button.warn{color:var(--danger)}
+textarea{width:100%;min-height:64px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;resize:vertical}
+.note-btn{margin-top:6px;background:var(--accent)!important;color:#fff!important;font-weight:600}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px}
+.kv span:nth-child(odd){color:var(--muted)}
+.trail{font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;max-height:190px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.keys{font-size:12px;color:var(--muted)}
+kbd{background:var(--btn);border-radius:4px;padding:0 5px;font:11px ui-monospace,monospace}
+#msg{font-size:12px;color:var(--ok);min-height:16px;margin-top:4px}
+@media (max-width:640px){main{padding:12px}.side{min-width:0}}
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>Libra simulator</h1>
+    <p class="sub">The real UI model on simulated parts. Click, or use the keyboard.</p>
+    <div class="device" id="device">
+      <div class="led" id="led" title="status LED: blue = powered, green = success, red = error"></div>
+      <button class="ptt" id="ptt" data-btn="PTT">PTT<small>tap = harmless &middot; hold = commit</small></button>
+      <div class="screen" id="screen"></div>
+      <div class="pad">
+        <button class="u" data-btn="UP">&#9650;</button>
+        <button class="l" data-btn="LEFT">&#9664;</button>
+        <button class="s" data-btn="SELECT">Select</button>
+        <button class="r" data-btn="RIGHT">&#9654;</button>
+        <button class="d" data-btn="DOWN">&#9660;</button>
+      </div>
+      <button class="back" data-btn="BACK">Back<small>hold = lock</small></button>
+    </div>
+    <p class="keys"><kbd>&larr;&uarr;&darr;&rarr;</kbd> D-pad &nbsp; <kbd>Enter</kbd> Select &nbsp; <kbd>Esc</kbd> Back &nbsp; <kbd>Space</kbd> PTT</p>
+  </section>
+
+  <section class="side">
+    <h2 style="margin-top:0">Tell us what feels wrong</h2>
+    <textarea id="note" placeholder="What were you trying to do, and what got in the way? The current screen and your last inputs are saved with it."></textarea>
+    <button class="note-btn" id="send-note">Save note</button>
+    <div id="msg"></div>
+
+    <h2>Computer / host</h2>
+    <div class="btns" id="host"></div>
+    <div class="btns" style="margin-top:6px"><button id="replace" class="warn">Swap the pending request</button></div>
+
+    <h2>Camera: scan a QR</h2>
+    <div class="btns" id="samples"></div>
+
+    <h2>Fingerprint</h2>
+    <div class="btns" id="fp"></div>
+
+    <h2>Clock and time</h2>
+    <div class="btns" id="clock"></div>
+
+    <h2>Device</h2>
+    <div class="btns" id="dev"></div>
+
+    <h2>State</h2>
+    <div class="kv" id="debug"></div>
+    <h2>Recent inputs</h2>
+    <div class="trail" id="trail"></div>
+  </section>
+</main>
+
+<script>
+(function(){
+"use strict";
+var $ = function(id){ return document.getElementById(id); };
+function el(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; }
+function post(path, body){
+  return fetch(path, {method:"POST", headers:{"Content-Type":"application/json","X-Libra-Sim":"1"}, body:JSON.stringify(body||{})})
+    .then(function(r){ return r.json(); });
+}
+
+/* ---------- renderer: turns a screen description into DOM. Text only, never innerHTML. ---------- */
+function ring(frac, label){
+  var NS="http://www.w3.org/2000/svg", s=document.createElementNS(NS,"svg"), r=22, c=2*Math.PI*r;
+  s.setAttribute("width","54"); s.setAttribute("height","54"); s.setAttribute("class","ring");
+  function circ(stroke, extra){
+    var e=document.createElementNS(NS,"circle");
+    e.setAttribute("cx","27"); e.setAttribute("cy","27"); e.setAttribute("r",String(r));
+    e.setAttribute("fill","none"); e.setAttribute("stroke",stroke); e.setAttribute("stroke-width","4");
+    if(extra){ e.setAttribute("stroke-dasharray", c+" "+c); e.setAttribute("stroke-dashoffset", String(c*(1-frac))); e.setAttribute("transform","rotate(-90 27 27)"); }
+    return e;
+  }
+  s.appendChild(circ("#232938")); s.appendChild(circ(frac < .2 ? "#ff7b72" : "#4ade80", true));
+  var t=document.createElementNS(NS,"text"); t.setAttribute("x","27"); t.setAttribute("y","31");
+  t.setAttribute("text-anchor","middle"); t.setAttribute("font-size","14"); t.setAttribute("fill","#e8ecf3"); t.textContent=label;
+  s.appendChild(t); return s;
+}
+function holdBar(p){
+  var b = el("div","bar"), i = el("i"); i.style.width = (p/10)+"%"; b.appendChild(i); return b;
+}
+function render(sc){
+  var root = $("screen"); root.textContent = "";
+  var st = el("div","sbar");
+  st.appendChild(el("span",null, sc.status.locked ? "LOCKED" : "UNLOCKED"));
+  st.appendChild(el("span",null, sc.status.time));
+  st.appendChild(el("span","badge", sc.status.level));
+  root.appendChild(st);
+  root.appendChild(el("div","ttl", sc.title));
+  var body = el("div","body"), b = sc.body || {}, id = sc.id;
+  function lines(from){ for(var i=from||0;i<sc.lines.length;i++) body.appendChild(el("div","ln"+(i>0&&id!=="Locked"?" dim":""), sc.lines[i])); }
+  if(id==="Locked" || id==="ComboApprove"){
+    var d = el("div","dots"); for(var i=0;i<b.dots;i++) d.appendChild(el("i")); body.appendChild(d);
+    var c = el("div","center"); c.style.height="auto"; sc.lines.forEach(function(t){ c.appendChild(el("div","ln dim",t)); }); body.appendChild(c);
+  } else if(id==="Idle"){
+    var c2 = el("div","center"); c2.appendChild(el("div",null,"◈")); c2.lastChild.style.fontSize="46px";
+    c2.appendChild(el("div",null,b.name)); c2.appendChild(el("div","ln dim","Direction: accounts")); c2.appendChild(el("div","ln dim","Select: settings")); body.appendChild(c2);
+  } else if(id==="Accounts"){
+    if(sc.lines.length){ var c3 = el("div","center"); sc.lines.forEach(function(t){ c3.appendChild(el("div","ln dim",t)); }); body.appendChild(c3); }
+    (b.rows||[]).forEach(function(r,i){
+      var row = el("div","row"+(i===b.cursor?" sel":""));
+      row.appendChild(el("span",null,r.text)); row.appendChild(el("span","t",(r.hold?"hold · ":"")+r.type)); body.appendChild(row);
+    });
+  } else if(id==="TOTPCode"){
+    body.appendChild(el("div","code",b.code));
+    body.appendChild(el("div","meta",b.account));
+    if(b.remaining!=null) body.appendChild(ring(b.ring/1000, String(b.remaining)));
+    body.appendChild(el("div","meta",b.type==="HOTP"?"counter-based code":"changes in "+b.remaining+" s"));
+  } else if(id==="Settings"){
+    (b.rows||[]).forEach(function(r,i){
+      var row = el("div","row"+(i===b.cursor?" sel":""));
+      row.appendChild(el("span",null,r.text)); row.appendChild(el("span","t",r.value||"")); body.appendChild(row);
+    });
+  } else if(id==="SetTime"){
+    var grid = el("div","tgrid");
+    (b.fields||[]).forEach(function(f,i){
+      var cell = el("div","tcell"+(i===b.index?" sel":""));
+      cell.appendChild(el("div","tl",f.label)); cell.appendChild(el("div","tv",f.text)); grid.appendChild(cell);
+    });
+    body.appendChild(grid);
+    body.appendChild(el("div","meta","Up/Down change, Left/Right pick"));
+    body.appendChild(el("div","meta","Hold PTT to set the clock"));
+    if(sc.hold!=null) body.appendChild(holdBar(sc.hold));
+  } else if(id==="TimeZone"){
+    var zc = el("div","center"); zc.style.height="auto"; zc.style.marginTop="14px";
+    zc.appendChild(el("div","code",b.text)); zc.lastChild.style.fontSize="26px";
+    zc.appendChild(el("div","meta","Local time now: "+b.local));
+    sc.lines.forEach(function(t){ zc.appendChild(el("div","ln dim",t)); });
+    zc.appendChild(el("div","ln dim","Up/Down 15 min, Left/Right 1 h"));
+    body.appendChild(zc);
+  } else if(id==="Reorder"){
+    (b.rows||[]).forEach(function(r,i){
+      var on = i===b.cursor;
+      var row = el("div","row"+(on?(b.grabbed?" grab":" sel"):""));
+      row.appendChild(el("span",null,(on&&b.grabbed?"\u2195 ":"")+r.text)); row.appendChild(el("span","t",r.tag)); body.appendChild(row);
+    });
+  } else if(id==="ConfirmSetting"){
+    lines(0);
+    if(sc.hold!=null) body.appendChild(holdBar(sc.hold));
+  } else if(id==="ShowQR"){
+    body.appendChild(el("div","qr")); lines(1);
+  } else if(id==="ConfirmOTP" || id==="RevealPrompt" || id==="HostRequest"){
+    lines(0);
+    if(sc.hold!=null) body.appendChild(holdBar(sc.hold));
+  } else if(id==="Notice" || id==="Wiped"){
+    var c4 = el("div","center"+(id==="Wiped"?" wiped":"")); sc.lines.forEach(function(t){ c4.appendChild(el("div","ln",t)); }); body.appendChild(c4);
+  } else { lines(0); }
+  root.appendChild(body);
+  if(sc.toast) root.appendChild(el("div","toast",sc.toast));
+  var h = el("div","hints");
+  [["Select",sc.hints.select],["PTT",sc.hints.ptt],["Back",sc.hints.back]].forEach(function(p){
+    var d = el("div"); d.appendChild(el("b",null,p[1]||"")); d.appendChild(document.createTextNode(p[0])); h.appendChild(d);
+  });
+  root.appendChild(h);
+}
+
+/* ---------- input ---------- */
+var pressed = {};
+function setBtn(name, down){
+  if(!!pressed[name] === down) return;
+  pressed[name] = down;
+  document.querySelectorAll('[data-btn="'+name+'"]').forEach(function(e){ e.classList.toggle("on", down); });
+  post("/api/button", {name:name, down:down});
+}
+document.querySelectorAll("[data-btn]").forEach(function(e){
+  var n = e.getAttribute("data-btn");
+  e.addEventListener("pointerdown", function(ev){ ev.preventDefault(); e.setPointerCapture(ev.pointerId); setBtn(n,true); audio(); });
+  ["pointerup","pointercancel","lostpointercapture"].forEach(function(t){ e.addEventListener(t, function(){ setBtn(n,false); }); });
+});
+var KEYS = {ArrowUp:"UP",ArrowDown:"DOWN",ArrowLeft:"LEFT",ArrowRight:"RIGHT",Enter:"SELECT",Escape:"BACK",Backspace:"BACK"," ":"PTT"};
+function typing(){ var a = document.activeElement; return a && (a.tagName==="TEXTAREA"||a.tagName==="INPUT"); }
+window.addEventListener("keydown", function(e){
+  if(typing()||e.repeat||e.ctrlKey||e.metaKey||e.altKey) return;
+  var n = KEYS[e.key]; if(!n) return; e.preventDefault(); audio(); setBtn(n,true);
+});
+window.addEventListener("keyup", function(e){ var n = KEYS[e.key]; if(n && !typing()){ e.preventDefault(); setBtn(n,false); } });
+window.addEventListener("blur", function(){ Object.keys(pressed).forEach(function(n){ if(pressed[n]) setBtn(n,false); }); });
+
+/* ---------- feedback: a tone for the haptic pulse ---------- */
+var ac = null, lastSeq = null;
+function audio(){ if(!ac){ try{ ac = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+function beep(kind){
+  if(navigator.vibrate) navigator.vibrate(kind==="error"?[60,40,60]:40);
+  if(!ac) return;
+  var o = ac.createOscillator(), g = ac.createGain(), f = {commit:880,error:220,notify:520,success:760,tap:660,abort:300}[kind]||440;
+  o.frequency.value = f; g.gain.value = .06; o.connect(g); g.connect(ac.destination);
+  o.start(); o.stop(ac.currentTime + (kind==="error"?.16:.08));
+}
+
+/* ---------- panel ---------- */
+function btn(parent, label, fn, cls){ var b = el("button",cls||null,label); b.addEventListener("click",fn); parent.appendChild(b); return b; }
+function panel(action, extra){ var body = {action:action}; for(var k in extra) body[k]=extra[k]; return post("/api/panel", body); }
+var built = false;
+function build(s){
+  if(built) return; built = true;
+  s.hostKinds.forEach(function(k){ btn($("host"), "Request: "+k, function(){ panel("host_request",{kind:k}); }); });
+  $("replace").addEventListener("click", function(){ panel("host_replace",{}); });
+  s.samples.forEach(function(n,i){ btn($("samples"), n, function(){ post("/api/scan",{index:i}); }); });
+  ["match","nomatch","error"].forEach(function(m){ var b = btn($("fp"), {match:"Matches",nomatch:"Won't match (wet/gloves)",error:"Sensor error"}[m], function(){ panel("fp",{mode:m}); }); b.setAttribute("data-fp",m); });
+  var ct = btn($("clock"), "Clock: trusted", function(){ panel("clock_trusted",{value: ct.getAttribute("data-t")!=="1"}); }); ct.id="clk";
+  [[10000,"+10 s"],[30000,"+30 s"],[60000,"+1 min"],[300000,"+5 min"],[3600000,"+1 h"]].forEach(function(p){ btn($("clock"), "Skip "+p[1], function(){ panel("warp",{ms:p[0]}); }); });
+  btn($("dev"), "Power cycle", function(){ panel("power_cycle"); });
+  btn($("dev"), "Factory reset", function(){ panel("reset"); }, "warn");
+  $("send-note").addEventListener("click", function(){
+    var t = $("note").value; if(!t.trim()) return;
+    post("/api/note",{text:t}).then(function(r){
+      if(r.ok){ $("note").value=""; $("msg").textContent = "Saved with the "+r.result+" screen and your last inputs."; setTimeout(function(){ $("msg").textContent=""; },4000); }
+      else { $("msg").textContent = "Not saved: "+(r.error||"error"); }
+    });
+  });
+}
+function side(s){
+  document.querySelectorAll("[data-fp]").forEach(function(b){ b.classList.toggle("act", b.getAttribute("data-fp")===s.debug.fingerprint); });
+  var ct = $("clk"); if(ct){ ct.setAttribute("data-t", s.debug.clock_trusted?"1":"0"); ct.textContent = s.debug.clock_trusted ? "Clock: trusted (click to break it)" : "Clock: NOT trusted (click to fix)"; ct.classList.toggle("act", !s.debug.clock_trusted); }
+  var d = $("debug"); d.textContent = "";
+  var p = s.debug.pending;
+  [["Combo (demo)", s.debug.combo],["Session", s.debug.session + (s.debug.wiped ? " (wiped)" : "")],["Failed attempts counted", String(s.debug.attempts_used)],
+   ["Accounts", String(s.debug.accounts)],["Pending request", p ? (p.kind+": "+p.summary) : "none"],["Screen", s.screen.id]].forEach(function(r){
+    d.appendChild(el("span",null,r[0])); d.appendChild(el("span",null,r[1]));
+  });
+  var t = $("trail"); t.textContent = "";
+  s.trail.slice().reverse().forEach(function(r){ t.appendChild(el("div",null,(r[0]>=0?"-":"+")+Math.abs(r[0])+" ms  "+r[1]+"  "+r[2])); });
+}
+
+/* ---------- poll ---------- */
+var last = "";
+function showLed(c){
+  /* the engine caps brightness at half; scale back up so the preview is visible on a screen */
+  var e = $("led"); if(!e) return;
+  var r=Math.min(255,c[0]*2), g=Math.min(255,c[1]*2), b=Math.min(255,c[2]*2);
+  e.style.background = "rgb("+r+","+g+","+b+")";
+  e.style.boxShadow = (r+g+b>30) ? "0 0 14px 3px rgba("+r+","+g+","+b+",.75), 0 0 0 2px #2b2f3a" : "0 0 0 2px #2b2f3a";
+}
+function poll(){
+  fetch("/api/state").then(function(r){ return r.json(); }).then(function(s){
+    build(s);
+    if(s.led) showLed(s.led);
+    var key = JSON.stringify([s.screen, s.debug, s.trail.map(function(r){ return r[1]+r[2]; })]);
+    if(key !== last){
+      last = key; render(s.screen); side(s);
+      if(lastSeq !== null && s.screen.haptic.seq !== lastSeq) beep(s.screen.haptic.kind);
+      lastSeq = s.screen.haptic.seq;
+    }
+  }).catch(function(){ $("screen").textContent = "Simulator not reachable. Is sim_server.py running?"; })
+    .then(function(){ setTimeout(poll, 50); });
+}
+poll();
+})();
+</script>
+</body>
+</html>
