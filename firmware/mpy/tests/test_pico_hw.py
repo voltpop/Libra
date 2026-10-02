@@ -983,5 +983,150 @@ class DevStopLoop(unittest.TestCase):
         self.assertTrue(any("stopped by request" in o for o in L.out))
 
 
+class RestartLoop(unittest.TestCase):
+    def build_and_run(self, request):
+        L = Loop("test_runs_for_the_requested_time_and_feeds_everything")
+        L.build()
+        ticks = [0]
+        resets = []
+
+        def sleep(n):
+            ticks[0] += n
+            L.rig.clock.advance(n)
+            if request and ticks[0] >= 500:
+                L.rig.restart_requested = True  # what a held restart does on the board
+        L.led.t = [0]
+        pico_main._run_loop(L.rig, L.rig.clock, L.display, L.led, L.buttons, L.reader, L.console, L.view, L.Cfg,
+                            3000, sleep, L.out.append, restart_fn=lambda: resets.append(ticks[0]))
+        return L, ticks[0], resets
+
+    def test_a_requested_restart_shows_the_message_turns_the_led_off_and_resets_once(self):
+        L, t, resets = self.build_and_run(True)
+        self.assertEqual(len(resets), 1)
+        self.assertLess(t, 2000)  # it did not run the full 3 s
+        self.assertEqual(L.display.frames[-1][0].strip(), "Restarting")
+        self.assertEqual(L.led.calls[-1][1], "off")
+        self.assertTrue(any("restarting" in o for o in L.out))
+
+    def test_without_a_request_it_never_resets(self):
+        L, t, resets = self.build_and_run(False)
+        self.assertEqual(resets, [])
+        self.assertGreaterEqual(t, 2900)
+
+    def test_main_py_starts_the_rig_at_power_up(self):
+        import os
+        here = os.path.dirname(os.path.abspath(__file__))
+        for base in (os.path.join(here, "..", "pico", "main.py"), os.path.join("pico", "main.py")):
+            if os.path.exists(base):
+                with open(base) as f:
+                    text = f.read()
+                break
+        else:
+            self.fail("pico/main.py is missing")
+        self.assertIn("import pico_main", text)
+        self.assertIn("pico_main.run()", text)
+
+
+class LcdSelfHeal(unittest.TestCase):
+    """The display is write-only, so a garbled one can only be repaired by writing it all again."""
+
+    def make(self):
+        chip = Chip()
+        s = Sleeps()
+        t = [0]
+        lcd = hw_lcd.LCD(chip, chip.addr, sleep_us=s.sleep_us, sleep_ms=s.sleep_ms, ticks=lambda: t[0])
+        return lcd, chip, t
+
+    def test_unchanged_text_costs_nothing_between_refreshes(self):
+        lcd, chip, t = self.make()
+        lcd.show("Hello", "World")
+        n = len(chip.latched)
+        for _ in range(5):
+            t[0] += 100
+            lcd.show("Hello", "World")
+        self.assertEqual(len(chip.latched), n)  # nothing was sent: the bus stays quiet
+
+    def test_a_garbled_display_is_rewritten_within_a_second(self):
+        lcd, chip, t = self.make()
+        lcd.show("Hello", "World")
+        chip.ddram = {k: "#" for k in chip.ddram}  # noise corrupted every character on screen
+        self.assertNotEqual(chip.row(0).strip(), "Hello")
+        t[0] += hw_lcd.REFRESH_MS
+        lcd.show("Hello", "World")  # the same text as before: the old driver would have skipped it
+        self.assertEqual(chip.row(0).strip(), "Hello")
+        self.assertEqual(chip.row(1).strip(), "World")
+
+    def test_it_is_not_rewritten_a_moment_before_the_refresh_is_due(self):
+        lcd, chip, t = self.make()
+        lcd.show("Hello", "World")
+        chip.ddram = {k: "#" for k in chip.ddram}
+        t[0] += hw_lcd.REFRESH_MS - 1
+        lcd.show("Hello", "World")
+        self.assertNotEqual(chip.row(0).strip(), "Hello")
+
+    def test_the_controller_is_reinitialised_and_the_symbols_reloaded_periodically(self):
+        import lb_lcd
+        lcd, chip, t = self.make()
+        lcd.show("Hello", "World")
+        chip.cgram = {}  # a corrupted symbol table
+        t[0] += hw_lcd.REINIT_MS
+        before = len(chip.cmds)
+        lcd.show("Hello", "World")
+        new = chip.cmds[before:]
+        # the handshake nibbles (3, 3, 3, 2) show up as 0x33 0x32 in this model, then the start-up commands
+        self.assertEqual(new[:7], [0x33, 0x32, 0x28, 0x08, 0x01, 0x06, 0x0C])
+        for slot, rows in enumerate(lb_lcd.GLYPHS):
+            self.assertEqual([chip.cgram[slot * 8 + i] for i in range(8)], list(rows), slot)
+        self.assertEqual(chip.row(0).strip(), "Hello")  # and the text is back after the clear
+
+    def test_a_reinit_needs_no_power_up_wait(self):
+        chip = Chip()
+        s = Sleeps()
+        t = [0]
+        lcd = hw_lcd.LCD(chip, chip.addr, sleep_us=s.sleep_us, sleep_ms=s.sleep_ms, ticks=lambda: t[0])
+        lcd.show("a", "b")
+        ms = s.ms
+        t[0] += hw_lcd.REINIT_MS
+        lcd.show("a", "b")
+        self.assertLess(s.ms - ms, 30)  # the handshake waits only: no 50 ms power-up delay
+
+    def test_a_reinit_while_asleep_keeps_the_characters_blank(self):
+        lcd, chip, t = self.make()
+        lcd.show("Hello", "World")
+        lcd.sleep(True)
+        t[0] += hw_lcd.REINIT_MS
+        lcd.show("", "")
+        self.assertIn(0x08, chip.cmds[-12:])
+        lcd.sleep(False)
+        self.assertEqual(chip.cmds[-1], 0x0C)
+
+    def test_wrapping_ticks_do_not_break_the_timing(self):
+        import lb_ticks
+        lcd, chip, t = self.make()
+        t[0] = lb_ticks.PERIOD - 300
+        lcd._last_init = lcd._last_refresh = t[0]
+        lcd.show("Hello", "World")
+        t[0] = (t[0] + hw_lcd.REFRESH_MS) % lb_ticks.PERIOD  # crosses the wrap
+        chip.ddram = {k: "#" for k in chip.ddram}
+        lcd.show("Hello", "World")
+        self.assertEqual(chip.row(0).strip(), "Hello")
+
+    def test_the_parallel_driver_heals_too(self):
+        lcd, chip, _ = make_parallel_lcd()
+        t = [0]
+        lcd._ticks = lambda: t[0]
+        lcd._last_init = lcd._last_refresh = 0
+        lcd.show("Hello", "World")
+        chip.ddram = {k: "#" for k in chip.ddram}
+        t[0] += hw_lcd.REFRESH_MS
+        lcd.show("Hello", "World")
+        self.assertEqual(chip.row(0).strip(), "Hello")
+        chip.cgram = {}
+        t[0] += hw_lcd.REINIT_MS
+        lcd.show("Hello", "World")
+        self.assertEqual(len(chip.cgram), 8 * 5)  # the symbols are back
+        self.assertEqual(chip.violations, [])
+
+
 if __name__ == "__main__":
     unittest.main()

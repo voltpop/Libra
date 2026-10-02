@@ -322,6 +322,15 @@ class Symbols(unittest.TestCase):
             self.assertTrue(all(0 <= row < 32 for row in g))
             self.assertTrue(any(g))
 
+    def test_the_chain_link_is_the_same_turned_upside_down(self):
+        link = lb_lcd.GLYPHS[2]
+        self.assertEqual(link[7], 0)  # the bottom row is empty, so the rotation is about row 3
+
+        def flip(row):  # a 5-pixel row read the other way round
+            return int("{:05b}".format(row)[::-1], 2)
+        for i in range(7):
+            self.assertEqual(link[i], flip(link[6 - i]), "row %d" % i)  # rotate 180 degrees: row i <-> row 6-i, mirrored
+
     def test_each_symbol_maps_to_its_slot_and_back(self):
         syms = (lb_lcd.SYM_LIBRA, lb_lcd.SYM_LOCK, lb_lcd.SYM_LINK, lb_lcd.SYM_BT, lb_lcd.SYM_UNLOCK)
         for i, sym in enumerate(syms):

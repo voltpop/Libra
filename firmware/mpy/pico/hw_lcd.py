@@ -8,6 +8,14 @@
 # to 5 V, which the Pico's 3.3 V pins do not tolerate. Check before connecting.
 
 import lb_lcd
+import lb_ticks
+
+# The module is write-only, so a garbled display cannot be detected, only repaired. Self-healing:
+# every REFRESH_MS both lines are rewritten even if their text is unchanged (heals garbled
+# characters), and every REINIT_MS the controller is fully re-initialised (heals a lost 4-bit
+# alignment or a corrupted mode) and the custom symbols are loaded again.
+REFRESH_MS = 1000
+REINIT_MS = 30000
 
 _RS = 0x01
 _EN = 0x04
@@ -20,19 +28,29 @@ def _default_sleeps():
     return time.sleep_us, time.sleep_ms
 
 
+def _default_ticks():
+    import time
+    if hasattr(time, "ticks_ms"):
+        return time.ticks_ms
+    return lambda: int(time.monotonic() * 1000)  # a desktop Python, for the tests
+
+
 class HD44780:
     """The controller's command set and 4-bit start-up, shared by both wirings. A subclass
     provides _latch(nibble, rs) (put one nibble on the bus and pulse E) and _prepare()."""
 
-    def __init__(self, cols=16, rows=2, sleep_us=None, sleep_ms=None):
+    def __init__(self, cols=16, rows=2, sleep_us=None, sleep_ms=None, ticks=None):
         if sleep_us is None:
             sleep_us, sleep_ms = _default_sleeps()
         self._us = sleep_us
         self._ms = sleep_ms
+        self._ticks = ticks or _default_ticks()
         self._cols = cols
         self._rows = rows
         self._shadow = [None] * rows
+        self._off = False  # asleep: the characters are blanked (see sleep())
         self._init()
+        self._last_init = self._last_refresh = self._ticks()
 
     def _byte(self, v, rs):
         self._latch(v >> 4, rs)
@@ -43,8 +61,9 @@ class HD44780:
         if c in (0x01, 0x02):
             self._ms(3)  # clear and home are slow
 
-    def _init(self):
-        self._ms(50)
+    def _init(self, power_up=True):
+        if power_up:
+            self._ms(50)  # the datasheet's wait after power-on; a re-init needs none
         self._prepare()
         for wait in (5, 5, 1):
             self._latch(0x03, 0)  # wake-up handshake, 8-bit mode three times
@@ -57,6 +76,8 @@ class HD44780:
         self._command(0x06)  # cursor moves right, no shift
         self._command(0x0C)  # display on, cursor off, no blink
         self._load_glyphs()
+        if self._off:
+            self._command(0x08)  # still asleep: keep the characters blank
 
     def _load_glyphs(self):
         """Draw lb_lcd.GLYPHS into the module's custom character slots 0, 1, ..."""
@@ -76,6 +97,14 @@ class HD44780:
         self._shadow[row] = text
 
     def show(self, line1, line2):
+        now = self._ticks()
+        if lb_ticks.diff(now, self._last_init) >= REINIT_MS:
+            self._init(power_up=False)  # the self-heal: start the controller over
+            self._shadow = [None] * self._rows
+            self._last_init = self._last_refresh = now
+        elif lb_ticks.diff(now, self._last_refresh) >= REFRESH_MS:
+            self._shadow = [None] * self._rows  # forget what we think is on screen: write it all again
+            self._last_refresh = now
         self.write_line(0, line1)
         self.write_line(1, line2)
 
@@ -86,6 +115,7 @@ class HD44780:
         """Blank (or restore) the characters. The text stays in the module's memory, so waking
         needs no redraw. An I2C backpack also switches its backlight; a bare parallel module's
         backlight is wired to power, so only the characters go dark."""
+        self._off = asleep
         self._command(0x08 if asleep else 0x0C)
         self.backlight(not asleep)
 
@@ -93,11 +123,11 @@ class HD44780:
 class LCD(HD44780):
     """Through a PCF8574 I2C backpack."""
 
-    def __init__(self, i2c, addr, cols=16, rows=2, sleep_us=None, sleep_ms=None):
+    def __init__(self, i2c, addr, cols=16, rows=2, sleep_us=None, sleep_ms=None, ticks=None):
         self._i2c = i2c
         self._addr = addr
         self._bl = _BL
-        HD44780.__init__(self, cols, rows, sleep_us, sleep_ms)
+        HD44780.__init__(self, cols, rows, sleep_us, sleep_ms, ticks)
 
     def _prepare(self):
         self._i2c.writeto(self._addr, bytes([self._bl]))
@@ -117,11 +147,11 @@ class ParallelLCD(HD44780):
     RW (module pin 5) must be tied to GND: this driver only ever writes, so the module never
     drives its (possibly 5 V) outputs back into the Pico. D0..D3 stay unconnected."""
 
-    def __init__(self, rs, e, d4, d5, d6, d7, cols=16, rows=2, sleep_us=None, sleep_ms=None):
+    def __init__(self, rs, e, d4, d5, d6, d7, cols=16, rows=2, sleep_us=None, sleep_ms=None, ticks=None):
         self._rs = rs
         self._e = e
         self._d = (d4, d5, d6, d7)
-        HD44780.__init__(self, cols, rows, sleep_us, sleep_ms)
+        HD44780.__init__(self, cols, rows, sleep_us, sleep_ms, ticks)
 
     def _prepare(self):
         self._e.value(0)
