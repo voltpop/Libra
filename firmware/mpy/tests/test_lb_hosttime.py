@@ -344,6 +344,26 @@ class Restart(unittest.TestCase):
         self.assertEqual(len(r.oath.list()), n)
         self.assertFalse(r.session.keep_unlocked())
 
+    def test_on_the_board_a_held_restart_raises_the_reboot_flag_and_not_before(self):
+        r = rig()
+        r.hardware_restart = True
+        r.ui.host_restart()
+        r.run(3000)
+        self.assertFalse(r.restart_requested)
+        self.assertEqual(r.session.state(), "UNLOCKED")  # nothing happens until the hold
+        self.hold(r)
+        self.assertTrue(r.restart_requested)
+
+    def test_a_refused_restart_never_raises_the_flag(self):
+        r = rig()
+        r.hardware_restart = True
+        r.ui.host_restart()
+        r.run(100)
+        r.press("BACK")
+        r.run(100)
+        self.hold(r)
+        self.assertFalse(r.restart_requested)
+
     def test_back_refuses_a_restart(self):
         r = rig()
         r.ui.host_restart()
@@ -553,6 +573,12 @@ class Outcomes(unittest.TestCase):
         self.assertIn("console=ro", self.out[-1])
         self.assertIn("level=L1", self.out[-1])
         self.assertIn("unlock=pin", self.out[-1])
+        import re
+        self.assertTrue(re.search(r"boot=[0-9a-f]{6}\b", self.out[-1]), self.out[-1])
+        other = lb_console.Console(self.r, out=self.out.append, direct=False)  # a new start has a new boot id
+        other.handle("mode")
+        self.assertNotEqual(re.search(r"boot=(\w+)", self.out[-1]).group(1),
+                            re.search(r"boot=(\w+)", [x for x in self.out if "boot=" in x][0]).group(1))
         self.assertIn("build=dev", self.out[-1])
         self.r.session.lock("MANUAL")
         self.c.handle("mode")

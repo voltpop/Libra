@@ -34,7 +34,7 @@ It never asks for or relays the unlock combo.
     libra device setting list
     libra device setting set push-to-show on|off
     libra device setting set zone +05:30     # or minutes: 330
-    libra device restart                     data kept, comes back locked   (type RESTART)
+    libra device restart                     REBOOT the board; comes back locked (one trigger: the PTT hold)
     libra device factory-reset               ERASES everything              (type RESET)
     libra dev stay-unlocked on|off           test mode: no idle lock (unlock the device first)
     libra dev console rw|ro                  rw: only a FINGERPRINT on the device approves it
@@ -61,6 +61,15 @@ console over USB serial; the CLI starts the rig itself if the board is sitting a
 prompt (no Thonny needed, but Thonny must not be holding the port). A real USB protocol replaces
 that one class later and no command changes. The device's console is **read-only** by default:
 it takes proposals and read-only commands, and refuses anything that would skip a hold.
+
+## `libra device restart`
+
+A real reboot: after you hold PTT the LCD says "Restarting" and the board resets itself, drops off USB
+and comes back. The CLI waits for it, reconnects (the port may be a new one) and proves the reboot
+happened by a changed boot id. `pico/main.py` makes the board start the rig by itself at every
+power-up, so it comes back running and locked with no computer needed (delete `main.py` from the
+board to stop that). The prototype keeps its data in RAM, so a restart forgets the settings and
+the clock: persistent storage will change that. There is no typed confirmation, only the hold.
 
 ## `libra dev stop` and `libra dev start`
 

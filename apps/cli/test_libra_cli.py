@@ -29,6 +29,10 @@ class Board:
         self.reject = reject  # a refusal sentence for any proposal
         self.silent = silent
         self.lose_link_after = lose_link_after
+        self.boot = "aaaa11"
+        self.hard_restart = True    # an approved restart drops the USB link, like the real board
+        self.restart_for_real = True  # False: approved, but the device did not actually reboot
+        self.dropped = False
         self.stopped = False  # `stop` was approved: the rig no longer answers
         self.ignore_zone = False  # an old device: takes the time, ignores the zone
         self.out = b""
@@ -56,8 +60,18 @@ class Board:
         self.polls_left = self.polls
         self._say(msg)
 
+    def reconnect(self):
+        if self.never_back:
+            raise OSError("no device")
+        self.dropped = False
+        return self
+
+    never_back = False
+
     def write(self, data):
         self.sent.append(data)
+        if self.dropped:
+            raise OSError("device reports readiness to read but returned no data")
         if self.lose_link_after is not None:
             self.lose_link_after -= 1
             if self.lose_link_after < 0:
@@ -74,7 +88,8 @@ class Board:
             return self._say("Traceback (most recent call last):\nNameError: name '%s' isn't defined" % line.split()[0])
         cmd, *args = line.split()
         if cmd == "mode":
-            self._say(" ".join("%s=%s" % kv for kv in self.mode.items()))
+            self._say("trust=%s boot=%s " % (self.mode["trust"], self.boot) + " ".join(
+                "%s=%s" % kv for kv in self.mode.items() if kv[0] != "trust"))
         elif cmd == "status":
             if self.pending and self.polls_left <= 0:
                 self._resolve()
@@ -109,8 +124,17 @@ class Board:
             key, val = args
             self._propose("SETTING", lambda: self.settings.__setitem__(
                 key, ("True" if val == "on" else "False") if key == "push_to_show" else val))
-        elif cmd in ("restart", "factoryreset"):
-            self._propose(cmd.upper(), lambda: None)
+        elif cmd == "restart":
+            def reboot():
+                if self.restart_for_real:
+                    self.boot = "bbbb22"
+                    self.mode["unlock"] = "none"
+                    self.clock_trusted = False
+                if self.hard_restart:
+                    self.dropped = True
+            self._propose("RESTART", reboot)
+        elif cmd == "factoryreset":
+            self._propose("FACTORYRESET", lambda: None)
         elif cmd == "stop":
             self._propose("STOP", lambda: setattr(self, "stopped", True),
                           "stop proposed: hold PTT on the device to approve, Back to refuse")
@@ -141,7 +165,7 @@ def run(argv, board, answers=(), **kw):
 
     class Ctx:
         def __enter__(self_):
-            return tr.Console(board)
+            return tr.Console(board, opener=board.reconnect)
 
         def __exit__(self_, *a):
             pass
@@ -387,16 +411,15 @@ class Commands(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("push_to_show=True", out[-1])
 
-    def test_restart_and_factory_reset_need_the_typed_word(self):
-        for argv, word in ((["device", "restart"], "RESTART"), (["device", "factory-reset"], "RESET")):
-            b = Board()
-            code, out, _ = run(argv, b, answers=["no"])
-            self.assertEqual(code, 1, argv)
-            self.assertIn("Cancelled.", out)
-            self.assertFalse(any(s.startswith((b"restart", b"factoryreset")) for s in b.sent), argv)
-            b = Board()
-            code, out, _ = run(argv, b, answers=[word])
-            self.assertEqual(code, 0, argv)
+    def test_factory_reset_needs_the_typed_word(self):
+        b = Board()
+        code, out, _ = run(["device", "factory-reset"], b, answers=["no"])
+        self.assertEqual(code, 1)
+        self.assertIn("Cancelled.", out)
+        self.assertFalse(any(s.startswith(b"factoryreset") for s in b.sent))
+        b = Board()
+        code, out, _ = run(["device", "factory-reset"], b, answers=["RESET"])
+        self.assertEqual(code, 0)
 
     def test_yes_skips_the_prompt_but_not_the_hold(self):
         b = Board(decision="CANCELLED")
@@ -434,6 +457,67 @@ class Options(unittest.TestCase):
                          ["device", "status", "--port", "/dev/x", "--json"])
         self.assertEqual(libra.hoist_options(["device", "setting", "set", "zone", "UTC-08:00"]),
                          ["device", "setting", "set", "zone", "UTC-08:00"])
+
+
+class Restart(unittest.TestCase):
+    """A real reboot, with one trigger: the PTT hold."""
+
+    def test_no_typed_word_is_asked_for(self):
+        b = Board()
+        code, out, _ = run(["device", "restart"], b, answers=[])  # any input() would raise StopIteration
+        self.assertEqual(code, 0)
+        self.assertFalse(any("Type " in x for x in out))
+
+    def test_it_waits_for_the_board_and_proves_the_reboot_with_a_new_boot_id(self):
+        b = Board()
+        code, out, _ = run(["device", "restart"], b)
+        self.assertEqual(code, 0)
+        self.assertEqual(b.boot, "bbbb22")
+        self.assertIn("rebooted", out[-1])
+        self.assertIn("defaults", out[-1])  # honest about the RAM-only prototype
+
+    def test_the_link_dropping_during_the_wait_is_the_approval_not_an_error(self):
+        b = Board()
+        b.polls = 0  # the drop happens on the very poll that sees the request clear
+        code, out, err = run(["device", "restart"], b)
+        self.assertEqual(code, 0)
+        self.assertFalse(any("lost the connection" in x for x in err))
+
+    def test_a_device_that_does_not_really_restart_is_reported(self):
+        b = Board()
+        b.restart_for_real = False
+        b.hard_restart = False
+        code, out, _ = run(["device", "restart"], b)
+        self.assertEqual(code, 1)
+        self.assertIn("did not actually restart", out[-1])
+
+    def test_a_board_that_never_comes_back_is_reported(self):
+        b = Board()
+        orig = tr.Console.reopen
+
+        def quick(self_, seconds=30):
+            return orig(self_, 1)
+        tr.Console.reopen = quick
+        try:
+            b.never_back = True
+            code, out, _ = run(["device", "restart"], b)
+        finally:
+            tr.Console.reopen = orig
+        self.assertEqual(code, 1)
+        self.assertIn("did not come back", out[-1])
+
+    def test_a_refusal_leaves_the_boot_id_alone(self):
+        b = Board(decision="CANCELLED")
+        code, out, _ = run(["device", "restart"], b)
+        self.assertEqual(code, 1)
+        self.assertEqual(b.boot, "aaaa11")
+        self.assertIn("Refused", out[-1])
+
+    def test_a_dropped_link_on_any_other_command_is_still_an_error(self):
+        b = Board()
+        b.lose_link_after = 3
+        code, out, err = run(["device", "time", "set"], b)
+        self.assertEqual(code, 2)
 
 
 class DevStartStop(unittest.TestCase):

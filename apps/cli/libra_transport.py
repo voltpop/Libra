@@ -78,9 +78,10 @@ def parse_kv(line):
 
 
 class Console:
-    def __init__(self, ser, log=None):
+    def __init__(self, ser, log=None, opener=None):
         self._ser = ser
         self._log = log  # callable(str) for --verbose: the raw exchange
+        self._opener = opener  # callable() -> a new serial link, used after the board reboots
 
     # ---- plumbing
 
@@ -95,6 +96,24 @@ class Console:
             for x in lines:
                 self._log("<< " + x)
         return lines
+
+    def reopen(self, seconds=30):
+        """After a reboot the board drops off USB and returns, often as a new port: wait for it and
+        reconnect. True once reconnected (also when there is nothing to reopen)."""
+        if self._opener is None:
+            return True
+        try:
+            self._ser.close()
+        except Exception:  # noqa: BLE001 - it is already gone
+            pass
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            try:
+                self._ser = self._opener()
+                return True
+            except Exception:  # noqa: BLE001 - not back yet
+                time.sleep(0.5)
+        return False
 
     def rig_running(self):
         """True if the board answers as the rig right now."""
@@ -160,7 +179,12 @@ class Console:
     # ---- proposals
 
     def _result(self, ends_rig=False):
-        lines = self.ask("result")
+        try:
+            lines = self.ask("result")
+        except OSError:
+            if ends_rig:
+                return Outcome(APPROVED, "the board dropped off USB")
+            raise
         if ends_rig and (not lines or any("Error" in x for x in lines)):
             return Outcome(APPROVED, "the rig stopped before it could answer")
         for line in lines:
@@ -179,7 +203,7 @@ class Console:
         (fingerprint), rejected (the device would not take it), timeout or withdrawn (Ctrl-C);
         the last two withdraw it on the device so it does not linger. With ends_rig (a proposal that
         ends the rig program, `dev stop`) the rig going quiet right after the request clears IS the
-        approval: it exits before it can answer "result"."""
+        approval: it exits before it can answer "result", and a reboot drops the USB link itself."""
         reply = " ".join(self.ask(line, 1.5))
         if "proposed" not in reply and "requested" not in reply:
             if "refused" in reply:
@@ -194,7 +218,12 @@ class Console:
             while time.monotonic() < end:
                 if tick:
                     tick(int(end - time.monotonic()))
-                text = " ".join(self.ask("status", 1.0))
+                try:
+                    text = " ".join(self.ask("status", 1.0))
+                except OSError:  # includes SerialException: the board dropped off USB
+                    if ends_rig:
+                        return Outcome(APPROVED, "the board dropped off USB")
+                    raise
                 if ends_rig and "Error" in text:  # the rig is gone: it stopped between two polls
                     return Outcome(APPROVED, "the rig stopped")
                 if "pending none" in text:

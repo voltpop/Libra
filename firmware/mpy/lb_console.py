@@ -53,7 +53,7 @@ HELP = (
     "ble on|off          pretend BLE is active (shows the Bluetooth symbol)",
     "usb on|off          pretend USB is plugged in or out (the board reads VBUS itself)",
     "stop                (dev) propose ending the rig program on the board; a PTT hold does it",
-    "restart             the computer proposes a restart (data kept, comes back locked); PTT hold",
+    "restart             propose a real reboot of the board (comes back locked); PTT hold",
     "result              how the last proposal ended: APPROVED, CANCELLED (Back), EXPIRED or DENIED",
     "cancel              withdraw the proposal that is waiting on the device",
     "mode                what the device treats this computer as (trust=masked until pairing exists)",
@@ -75,6 +75,11 @@ DIRECT = ("usb", "ble", "press", "down", "up", "unlock", "host", "swap", "scan",
 
 class Console:
     def __init__(self, rig, out=print, notes_path=None, direct=True):
+        try:
+            import os
+            self._boot = "%02x%02x%02x" % tuple(os.urandom(3))
+        except Exception:
+            self._boot = "000000"  # a new id per start: lets a host see that a restart really happened
         self._direct_base = direct
         self._rig = rig
         self._out = out
@@ -244,9 +249,9 @@ class Console:
         elif cmd == "mode":
             sc = r.ui.screen()["status"]
             # unlock strength: none (locked), pin (the combo); pin+fp needs a real fingerprint sensor
-            self._out("trust=masked build=dev unlock=%s console=%s level=%s usb=%s ble=%s stay_unlocked=%s" % (
-                "none" if sc["locked"] else "pin", "rw" if self.direct else "ro", sc["level"], sc["usb"],
-                sc["ble"], r.session.keep_unlocked()))
+            self._out("trust=masked build=dev boot=%s unlock=%s console=%s level=%s usb=%s ble=%s stay_unlocked=%s" % (
+                self._boot, "none" if sc["locked"] else "pin", "rw" if self.direct else "ro", sc["level"],
+                sc["usb"], sc["ble"], r.session.keep_unlocked()))
         elif cmd == "settings":
             self._out(" ".join("%s=%s" % kv for kv in sorted(r.settings.all().items())))
             self._out("stay_unlocked=%s console=%s" % (r.session.keep_unlocked(),

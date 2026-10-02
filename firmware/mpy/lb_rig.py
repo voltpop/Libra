@@ -24,6 +24,8 @@ DEMO_ACCOUNTS = (
 class Rig:
     def __init__(self, real_clock=False, seed=True, durations=None, clock=None, push_to_show=True):
         self.stop_requested = False  # developer stop: set by a held proposal, read by the board's loop
+        self.hardware_restart = False  # True on the board: a restart really reboots it (see _request_restart)
+        self.restart_requested = False
         self.clock = clock if clock is not None else lb_fakes.SimClock(real=real_clock)
         self.ks = lb_fakes.MemKeystore()
         self.store = lb_fakes.MemOathStore()
@@ -38,6 +40,14 @@ class Rig:
             self.oath.set_reveal_all(False)
         if seed:
             self._seed()
+
+    def _request_restart(self):
+        """A held restart. On the board this only raises a flag: its loop shows "Restarting" and
+        resets the chip. Everywhere else (the simulator, tests) it rebuilds the model in place."""
+        if self.hardware_restart:
+            self.restart_requested = True
+        else:
+            self.boot()
 
     def _request_stop(self):
         self.stop_requested = True  # the loop that drives the rig watches this
@@ -72,7 +82,7 @@ class Rig:
         self.led.reset()
         self.ui = lb_ui.UI(self.session, self.oath, self.engine, self.clock.ticks, self.clock,
                            haptic=self.haptic, settings=self.settings, set_time=self._set_time,
-                           factory_reset=self.reset, restart=self.boot, console_rw=self._set_console_rw, stop=self._request_stop,
+                           factory_reset=self.reset, restart=self._request_restart, console_rw=self._set_console_rw, stop=self._request_stop,
                            usb_present=lambda: self.usb, ble_active=lambda: self.ble)
 
     # ---- driving the model (manual clock: each call moves time forward)

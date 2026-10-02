@@ -7,7 +7,7 @@
     libra device setting list
     libra device setting set push-to-show on|off
     libra device setting set zone +05:30    (or minutes: 330)
-    libra device restart                    data kept, comes back locked
+    libra device restart                    reboot the board (comes back locked); the PTT hold is the only trigger
     libra device factory-reset              ERASES everything
     libra dev stay-unlocked on|off          bench tools, dev builds only
     libra dev console rw|ro
@@ -122,7 +122,7 @@ def build_parser():
     dev_ = scopes.add_parser("device", help="the Libra itself", parents=[common])
     dsub = dev_.add_subparsers(dest="verb", metavar="command", parser_class=Parser)
     leaf(dsub, "status", ("device", "status"), "what the device says about itself and about this computer")
-    leaf(dsub, "restart", ("device", "restart"), "restart (data kept; comes back locked)")
+    leaf(dsub, "restart", ("device", "restart"), "reboot the board; it comes back locked (the PTT hold is the only trigger)")
     leaf(dsub, "factory-reset", ("device", "factory-reset"), "ERASE every account and setting")
     t = dsub.add_parser("time", help="the device clock", parents=[common])
     ts = leaf(t.add_subparsers(dest="sub", metavar="command", parser_class=Parser), "set", ("device", "time", "set"),
@@ -281,10 +281,23 @@ class Cli:
         return r
 
     def restart(self):
-        if not self.a.yes and not confirm("This restarts the Libra. Data is kept, it comes back LOCKED, and "
-                                          "stay-unlocked ends.", "RESTART", self.input, self.say):
-            return Result(False, "cancelled", "Cancelled.")
-        return self.propose("restart", "Restarted: the device is locked.")
+        """A real reboot of the board. One trigger: the PTT hold (no typed word, since a restart
+        loses nothing that matters). Proven by a changed boot id after the board comes back."""
+        before = self.t.mode().get("boot")
+        r = self.propose("restart", "Restarted.", "Hold PTT on the Libra to RESTART it (Back to refuse, Ctrl-C to withdraw).",
+                         ends_rig=True)
+        if not r.ok:
+            return r
+        self.say("Approved. Waiting for the board to come back...")
+        if not self.t.reopen():
+            return Result(False, "unverified", "Approved, but the board did not come back on USB.")
+        if not self.t.ensure_rig(self.say):
+            return Result(False, "unverified", "Approved and the board is back, but the rig is not running on it.")
+        after = self.t.mode()
+        if not after.get("boot") or after.get("boot") == before:
+            return Result(False, "unverified", "Approved, but the device did not actually restart (same boot id).")
+        return Result(True, "restarted", "Restarted: the board rebooted and the device is locked. The prototype keeps "
+                      "its data in RAM, so the settings and the clock are back to their defaults.", after)
 
     def factory_reset(self):
         if not self.a.yes and not confirm("This ERASES every account and setting on the Libra. It cannot be undone.",
@@ -342,7 +355,12 @@ def default_transport(args, err):
     class Ctx:
         def __enter__(self_):
             self_.ser = serial.Serial(args.port or tr.find_port(), tr.BAUD, timeout=0.1)
-            return tr.Console(self_.ser, err if args.verbose else None)
+            def opener():
+                try:
+                    return serial.Serial(args.port or tr.find_port(), tr.BAUD, timeout=0.1)
+                except SystemExit as e:  # find_port found none, or several: not back yet
+                    raise OSError(str(e))
+            return tr.Console(self_.ser, err if args.verbose else None, opener)
 
         def __exit__(self_, *exc):
             self_.ser.close()

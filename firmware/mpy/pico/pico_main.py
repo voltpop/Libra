@@ -147,6 +147,7 @@ def run(max_ms=None, unix=None):
     led = make_led(cfg)
     clock = _make_clock()
     rig = Rig(clock=clock)
+    rig.hardware_restart = True  # a held restart reboots the board (the simulator rebuilds in place)
     if unix is not None:
         clock.set_unix(int(unix))
         clock.trusted_flag = True
@@ -166,7 +167,7 @@ def run(max_ms=None, unix=None):
                          else "NOT set. Type `time demo` or `time <unix>` here, or restart with run(unix=...)"))
     print("Type commands in this shell while it runs, for example `status` or `help`.")
     _run_loop(rig, clock, display, led, buttons, reader, console, view, cfg, max_ms, time.sleep_ms,
-              sleeper=sleeper, usb_sense=make_usb_sense(cfg))
+              sleeper=sleeper, usb_sense=make_usb_sense(cfg), restart_fn=_reset_board)
 
 
 def make_usb_sense(cfg, make_pin=None, out=print):
@@ -188,14 +189,29 @@ def make_usb_sense(cfg, make_pin=None, out=print):
         return None
 
 
+def _reset_board():
+    """Reboot the chip, the way a power cycle would. The USB link drops and comes back."""
+    import machine
+    machine.reset()
+
+
 def _run_loop(rig, clock, display, led, buttons, reader, console, view, cfg, max_ms, sleep_ms,
-              out=print, sleeper=None, usb_sense=None):
+              out=print, sleeper=None, usb_sense=None, restart_fn=None):
     """The rig's main loop, with every part passed in so it can be tested without hardware."""
     started = last_draw = last_led = clock.ticks()
     errors = 0
     dark = False
     try:
         while max_ms is None or lb_ticks.diff(clock.ticks(), started) < max_ms:
+            if getattr(rig, "restart_requested", False):  # a held restart: reboot the board
+                display.show(lb_lcd.fit("Restarting"), lb_lcd.fit(""))
+                out("restarting")
+                if led is not None:
+                    led.off()
+                sleep_ms(400)  # long enough to read, and for the last bytes to leave the USB port
+                if restart_fn is not None:
+                    restart_fn()  # does not return on the board
+                break
             if getattr(rig, "stop_requested", False):  # a held `libra dev stop`: end the program
                 display.show(lb_lcd.fit("Stopped"), lb_lcd.fit("libra dev start"))
                 out("stopped by request (hold PTT on `libra dev stop`)")
