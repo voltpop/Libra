@@ -8,6 +8,8 @@ Planned documents (none written yet):
 - Backup file format, versioned and authenticated
 - Host and device protocol: how the host tool reaches the device (open decision)
 - Companion protocol over BLE: pairing, login relay, bulk transfer
+- Backup server protocol: how an encrypted backup is stored and fetched without an account
+- Key server use: publishing keys and certifications, and fetching them (existing protocols first)
 - Test vectors for all of the above
 
 **Rule:** firmware and every app implement the same spec and pass the same vectors.

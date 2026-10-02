@@ -641,5 +641,6 @@ OPEN_POINTS = [
     ("Logging rule", "No secrets or PINs in logs; release builds log minimally. Not yet written into the architecture."),
     ("Security architecture", "That section has not been reviewed yet. Types such as `lb_level_t` and the keystore API may change when it is."),
     ("Repository layout", "The component list in the repository-layout block of LIBRA.md omitted `storage`, `vault` and `usb`. Fixed with this map."),
+    ("Host simulation seam", "The UI and services are to be built on the host first, with simulated drivers behind the driver headers and the UI model kept separate from the renderer. The rendering toolkit (LVGL or hand-written) is undecided. See Host-side development in LIBRA.md."),
     ("Reused firmware", "If the pico-fido family is adopted, `openpgp`, `fido` and `oath` become thin adapters around it and their internals will differ from this sketch."),
 ]

@@ -31,7 +31,7 @@ python3 tools/build_softmap.py     # refuses to build if the layering rules are 
 | `hardware/` | v0 wiring and BOM; v1 PCB and enclosure | not started |
 | `firmware/` | ESP-IDF firmware, one component per module | not started |
 | `apps/` | Untrusted clients: shared library, command-line tool, desktop, mobile | not started |
-| `services/` | A hosted piece, only if one is chosen | undecided |
+| `services/` | Optional supporting servers: key server, backup server | not started |
 | `test/` | Interoperability and hardware-in-loop tests | not started |
 | `tools/` | Scripts that build the design documents | working |
 

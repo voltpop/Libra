@@ -4,3 +4,6 @@ build/
 sdkconfig
 sdkconfig.old
 .DS_Store
+qa_notes.jsonl
+firmware/pico-backup-*/
+.venv/

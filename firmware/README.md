@@ -14,3 +14,15 @@ Planned layout (not created yet):
 
 Calls go down the layers, callbacks go up, and `session` alone grants approval. The build of
 `software-map.html` enforces the layering on the planned API.
+
+## Planned first slice (nothing created yet)
+
+Build and test on the host before the hardware exists:
+- the `include/lb_*.h` headers for every component in the software map
+- simulated drivers behind the driver headers: display (to PNG), scripted input, a camera that serves
+  test QR images, a scripted fingerprint
+- the UI model and hold engine, kept separate from the renderer (the toolkit is undecided)
+- real `oath`, `qrparse` (otpauth only) and `session`, with stubs for `xch`, `backup` and `vault`
+- scenario tests and a screenshot of every state
+
+See "Host-side development and simulated drivers" and "First code slice" in `LIBRA.md`.

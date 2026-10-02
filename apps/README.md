@@ -13,6 +13,6 @@ Rules for everything under `apps/`:
 | Directory | Purpose | Status |
 |---|---|---|
 | `shared/` | One codec for the protocols and the backup format | not started |
-| `cli/` | v0 host tool: time sync, backup and restore, firmware update | not started |
+| `cli/` | v0 host tool: the `libra` command (time, settings, restart, reset, dev tools); backup and restore, firmware update later | device scope works (`libra.py`) |
 | `desktop/` | Later | reserved |
 | `mobile/` | Later | reserved |
