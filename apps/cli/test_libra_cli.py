@@ -8,6 +8,7 @@ import libra_policy as policy
 import libra_transport as tr
 
 tr.QUIET_S = 0.0  # the fake answers at once
+tr.Console.SETTLE_S = 0  # no waiting for a real board to boot
 
 
 class Board:
@@ -31,6 +32,8 @@ class Board:
         self.lose_link_after = lose_link_after
         self.boot = "aaaa11"
         self.hard_restart = True    # an approved restart drops the USB link, like the real board
+        self.drop_style = "raise"   # "raise": writes fail; "silent": the dead link just stops answering
+        self.new_rig_answers = False  # after the reboot the old link answers again, from a fresh rig
         self.restart_for_real = True  # False: approved, but the device did not actually reboot
         self.dropped = False
         self.stopped = False  # `stop` was approved: the rig no longer answers
@@ -64,12 +67,18 @@ class Board:
         if self.never_back:
             raise OSError("no device")
         self.dropped = False
+        self.booting_polls = self.boot_silent_polls  # the rig is not answering yet
         return self
+
+    boot_silent_polls = 0
+    booting_polls = 0
 
     never_back = False
 
     def write(self, data):
         self.sent.append(data)
+        if self.dropped == "silent":
+            return  # a dead link that raises nothing and answers nothing
         if self.dropped:
             raise OSError("device reports readiness to read but returned no data")
         if self.lose_link_after is not None:
@@ -82,6 +91,9 @@ class Board:
         if line.startswith("import pico_main"):
             self.rig = True
             return
+        if self.booting_polls > 0:
+            self.booting_polls -= 1
+            return  # still booting: the board says nothing
         if self.stopped and self.rig:
             self.rig = False
         if not self.rig:
@@ -131,7 +143,7 @@ class Board:
                     self.mode["unlock"] = "none"
                     self.clock_trusted = False
                 if self.hard_restart:
-                    self.dropped = True
+                    self.dropped = self.drop_style
             self._propose("RESTART", reboot)
         elif cmd == "factoryreset":
             self._propose("FACTORYRESET", lambda: None)
@@ -483,6 +495,79 @@ class Restart(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertFalse(any("lost the connection" in x for x in err))
 
+    def test_a_dead_link_that_just_goes_quiet_still_counts_as_the_approval(self):
+        # what really happened on the board: no error, no answer, for as long as you care to wait
+        b = Board()
+        b.drop_style = "silent"
+        code, out, err = run(["device", "restart", "--wait", "20"], b)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(b.boot, "bbbb22")
+        self.assertFalse(any("no approval" in x for x in out))
+
+    def test_it_waits_while_the_rig_is_still_booting(self):
+        b = Board()
+        b.drop_style = "silent"
+        b.boot_silent_polls = 4  # a few seconds of silence while main.py starts the rig
+        code, out, _ = run(["device", "restart", "--wait", "20"], b)
+        self.assertEqual(code, 0, out)
+        self.assertFalse(any("Not interrupting" in x for x in out))
+        self.assertEqual(b.boot, "bbbb22")
+
+    def test_a_board_without_main_py_gets_the_rig_started_after_the_reboot(self):
+        class NoMain(Board):
+            def reconnect(self_):
+                Board.reconnect(self_)
+                self_.rig = False  # back at a Python prompt
+                return self_
+        b = NoMain()
+        code, out, _ = run(["device", "restart"], b)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(any(s.startswith(b"import pico_main") for s in b.sent))
+
+    def test_a_board_that_never_starts_the_rig_is_reported(self):
+        b = Board()
+        b.drop_style = "silent"
+        b.boot_silent_polls = 10 ** 6
+        orig = tr.Console.wait_for_rig
+
+        def short(self_, out=print, seconds=25):
+            return orig(self_, out, 2)
+        tr.Console.wait_for_rig = short
+        try:
+            code, out, _ = run(["device", "restart", "--wait", "20"], b)
+        finally:
+            tr.Console.wait_for_rig = orig
+        self.assertEqual(code, 1)
+        self.assertTrue(any("did not start the rig" in x for x in out))
+
+    def test_a_new_rig_with_no_history_answering_the_old_link_counts_too(self):
+        class Fresh(Board):
+            """After the approval the same link answers again, from a rig that has just started."""
+            def write(self, data):
+                if self.last and self.last[1] == "APPROVED" and data.decode().strip() == "result":
+                    self.last = None  # a fresh rig has no decisions
+                Board.write(self, data)
+        b = Fresh()
+        b.hard_restart = False
+        code, out, _ = run(["device", "restart"], b)
+        self.assertEqual(code, 0, out)
+
+    def test_only_the_rig_ending_proposals_read_silence_as_approval(self):
+        b = Board()
+        b.polls = 1
+
+        def silent_resolve():
+            b.dropped = "silent"  # the board stops answering before it ever clears the request
+        b._resolve = silent_resolve
+        code, out, _ = run(["device", "time", "set", "--wait", "8"], b)
+        self.assertEqual(code, 1)  # a time request is never assumed approved from silence
+
+    def test_a_timed_out_proposal_on_a_dead_link_does_not_crash_the_cancel(self):
+        b = Board(polls=10 ** 9)
+        b.dropped = "raise"
+        code, out, err = run(["device", "time", "set", "--wait", "1"], b)
+        self.assertIn(code, (1, 2))  # a clean outcome or a clean link-lost, never a traceback
+
     def test_a_device_that_does_not_really_restart_is_reported(self):
         b = Board()
         b.restart_for_real = False
@@ -518,6 +603,77 @@ class Restart(unittest.TestCase):
         b.lose_link_after = 3
         code, out, err = run(["device", "time", "set"], b)
         self.assertEqual(code, 2)
+
+
+class Reconnect(unittest.TestCase):
+    """The reconnect after a reboot, which must be patient and careful (see Console.reopen)."""
+
+    def test_reopen_leaves_the_port_alone_for_the_settle_time_before_opening(self):
+        order = []
+
+        class S:
+            def close(self_):
+                order.append("close")
+
+        def opener():
+            order.append("open")
+            return S()
+        slept = []
+        c = tr.Console(S(), opener=opener)
+        real = tr.time.sleep
+        tr.time.sleep = lambda n: slept.append(n)
+        try:
+            self.assertTrue(c.reopen(seconds=5, settle=8))
+        finally:
+            tr.time.sleep = real
+        self.assertEqual(order, ["close", "open"])  # the old link is closed first, then a fresh one
+        self.assertIn(8, slept)  # and nothing was opened until the settle time had passed
+
+    def test_the_default_settle_is_long_enough_for_the_rig_to_start(self):
+        import re
+        with open(tr.__file__.replace(".pyc", ".py")) as f:  # the tests zero the class value, so read the source
+            m = re.search(r"SETTLE_S = (\d+)", f.read())
+        self.assertGreaterEqual(int(m.group(1)), 7)  # the rig takes about 7 s to start
+
+    def test_a_stale_half_line_does_not_stop_the_rig_being_recognised(self):
+        class Stale(Board):
+            """Its first reply is an error about a leftover boot line, as on the real board."""
+            def __init__(self):
+                Board.__init__(self)
+                self.first = True
+
+            def write(self, data):
+                if data == b"\n" and self.first:
+                    self.first = False
+                    self._say("error: unknown command 'lcd:' (try help)")
+                    return
+                Board.write(self, data)
+        c = tr.Console(Stale())
+        self.assertTrue(c.wait_for_rig(lambda s: None, seconds=10))
+
+    def test_a_deaf_link_is_replaced_by_a_fresh_one(self):
+        class Deaf(Board):
+            def write(self, data):
+                self.sent.append(data)  # takes the bytes, says nothing: like a link to the dying USB instance
+        good = Board()
+
+        def opener():
+            return good
+        c = tr.Console(Deaf(), opener=opener)
+        self.assertTrue(c.wait_for_rig(lambda s: None, seconds=20, quiet_before_reopen=1))
+        self.assertTrue(any(s.startswith(b"mode") for s in good.sent))
+
+    def test_a_python_prompt_still_gets_the_rig_started(self):
+        b = Board(rig=False)
+        c = tr.Console(b)
+        self.assertTrue(c.wait_for_rig(lambda s: None, seconds=10))
+        self.assertTrue(any(s.startswith(b"import pico_main") for s in b.sent))
+
+    def test_a_board_that_never_answers_is_reported_after_the_wait(self):
+        c = tr.Console(Board(silent=True))
+        said = []
+        self.assertFalse(c.wait_for_rig(said.append, seconds=2))
+        self.assertTrue(any("did not start the rig" in x for x in said))
 
 
 class DevStartStop(unittest.TestCase):

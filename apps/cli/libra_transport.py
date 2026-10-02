@@ -97,15 +97,21 @@ class Console:
                 self._log("<< " + x)
         return lines
 
-    def reopen(self, seconds=30):
-        """After a reboot the board drops off USB and returns, often as a new port: wait for it and
-        reconnect. True once reconnected (also when there is nothing to reopen)."""
+    SETTLE_S = 8  # after a reboot, leave the port alone this long (the rig needs about 7 s to start)
+
+    def reopen(self, seconds=45, settle=None):
+        """After a reboot the board drops off USB and returns. Reconnect, carefully, because two
+        things go wrong if you hurry (both seen on the real board): a port opened at once attaches to
+        the old, dying USB instance and stays deaf, and a port opened while the rig is still starting
+        gets no answer. So: close the old link, leave the port alone for `settle` seconds, then open
+        a fresh one. True once reconnected (also when there is nothing to reopen)."""
         if self._opener is None:
             return True
         try:
             self._ser.close()
         except Exception:  # noqa: BLE001 - it is already gone
             pass
+        time.sleep(self.SETTLE_S if settle is None else settle)
         end = time.monotonic() + seconds
         while time.monotonic() < end:
             try:
@@ -125,6 +131,30 @@ class Console:
         while time.monotonic() < end:
             if not self.rig_running():
                 return True
+        return False
+
+    def wait_for_rig(self, out=print, seconds=45, quiet_before_reopen=10):
+        """After a reboot: wait for the rig the board starts by itself (pico/main.py). Silence just
+        means it is still booting (or the link we hold is deaf), so keep asking, with an empty line
+        first to flush a stale half-line the rig may have queued, and open a fresh link now and then.
+        A Python prompt means there is no main.py, so start the rig."""
+        end = time.monotonic() + seconds
+        quiet_since = time.monotonic()
+        while time.monotonic() < end:
+            self._ser.reset_input_buffer()
+            self._ser.write(b"\n")  # flush: the rig answers a blank line with at most one error line
+            time.sleep(0.2)
+            text = " ".join(self.ask("mode", 1.5))
+            if "trust=" in text:
+                return True
+            if "Error" in text and "error:" not in text:  # a Python traceback: the REPL, no rig
+                return self.ensure_rig(out)
+            if text.strip():
+                quiet_since = time.monotonic()  # it said something: alive, just not ready
+            elif self._opener is not None and time.monotonic() - quiet_since > quiet_before_reopen:
+                self.reopen(seconds=10, settle=0)  # a deaf link: a fresh one often works
+                quiet_since = time.monotonic()
+        out("the board did not start the rig within %d s." % seconds)
         return False
 
     def ensure_rig(self, out=print, start_wait_s=15):
@@ -187,6 +217,9 @@ class Console:
             raise
         if ends_rig and (not lines or any("Error" in x for x in lines)):
             return Outcome(APPROVED, "the rig stopped before it could answer")
+        if ends_rig and any(x.strip() == "result none" for x in lines):
+            # a freshly started rig has no history: the request cleared because the board restarted
+            return Outcome(APPROVED, "the board restarted (a new rig has no decisions yet)")
         for line in lines:
             parts = line.split()
             if len(parts) == 3 and parts[0] == "result":
@@ -197,6 +230,13 @@ class Console:
 
     def cancel(self):
         return "withdrawn" in " ".join(self.ask("cancel"))
+
+    def _try_cancel(self):
+        """Withdraw a proposal, ignoring a link that has already gone."""
+        try:
+            self.cancel()
+        except OSError:
+            pass
 
     def propose(self, line, wait_s=45, tick=None, ends_rig=False):
         """Send a proposal and wait. Returns an Outcome: approved, refused (Back), expired, denied
@@ -214,22 +254,30 @@ class Console:
                 return Outcome(NO_RIG, "the board is at a Python prompt, not running the rig")
             return Outcome(REJECTED, "unexpected reply: %r" % (reply,))
         end = time.monotonic() + wait_s
+        silent = 0  # consecutive polls the board did not answer at all
         try:
             while time.monotonic() < end:
                 if tick:
                     tick(int(end - time.monotonic()))
                 try:
-                    text = " ".join(self.ask("status", 1.0))
+                    lines = self.ask("status", 1.0)
                 except OSError:  # includes SerialException: the board dropped off USB
                     if ends_rig:
                         return Outcome(APPROVED, "the board dropped off USB")
                     raise
+                text = " ".join(lines)
+                silent = 0 if lines else silent + 1
+                if ends_rig and silent >= 2:
+                    # A rebooting board's old USB link often goes dead without raising an error: it just
+                    # stops answering. After a request that ends the rig, that silence is the approval;
+                    # the caller proves it (a new boot id, or the rig no longer answering).
+                    return Outcome(APPROVED, "the board went silent")
                 if ends_rig and "Error" in text:  # the rig is gone: it stopped between two polls
                     return Outcome(APPROVED, "the rig stopped")
                 if "pending none" in text:
                     return self._result(ends_rig)
         except KeyboardInterrupt:
-            self.cancel()
+            self._try_cancel()
             return Outcome(WITHDRAWN, "stopped from the keyboard; withdrawn on the device")
-        self.cancel()
+        self._try_cancel()
         return Outcome(TIMEOUT, "no approval within %d s; withdrawn on the device" % wait_s)

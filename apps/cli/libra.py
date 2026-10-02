@@ -291,7 +291,7 @@ class Cli:
         self.say("Approved. Waiting for the board to come back...")
         if not self.t.reopen():
             return Result(False, "unverified", "Approved, but the board did not come back on USB.")
-        if not self.t.ensure_rig(self.say):
+        if not self.t.wait_for_rig(self.say):
             return Result(False, "unverified", "Approved and the board is back, but the rig is not running on it.")
         after = self.t.mode()
         if not after.get("boot") or after.get("boot") == before:

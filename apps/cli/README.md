@@ -66,7 +66,10 @@ it takes proposals and read-only commands, and refuses anything that would skip 
 
 A real reboot: after you hold PTT the LCD says "Restarting" and the board resets itself, drops off USB
 and comes back. The CLI waits for it, reconnects (the port may be a new one) and proves the reboot
-happened by a changed boot id. `pico/main.py` makes the board start the rig by itself at every
+happened by a changed boot id. Reconnecting is deliberately patient (about 10 s): a port opened the instant
+the board resets attaches to the old, dying USB instance and stays deaf, and one opened while the rig is
+still starting (about 7 s) gets no answer, so the CLI leaves the port alone for a settle period, opens a
+fresh link, flushes with an empty line, and keeps asking. `pico/main.py` makes the board start the rig by itself at every
 power-up, so it comes back running and locked with no computer needed (delete `main.py` from the
 board to stop that). The prototype keeps its data in RAM, so a restart forgets the settings and
 the clock: persistent storage will change that. There is no typed confirmation, only the hold.
