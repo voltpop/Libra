@@ -43,6 +43,36 @@ class Board:
         return 1, "unknown"
 
 
+class RunMpremote(unittest.TestCase):
+    def test_a_hung_mpremote_is_a_failure_not_a_traceback(self):
+        import subprocess
+        old = subprocess.run
+
+        def hang(*a, **k):
+            raise subprocess.TimeoutExpired(a[0], k.get("timeout", 1))
+        subprocess.run = hang
+        try:
+            code, text = libra_update.run_mpremote(["fs", "cp", "x", ":"], timeout=5)
+        finally:
+            subprocess.run = old
+        self.assertEqual(code, 1)
+        self.assertIn("timed out after 5 s", text)
+
+    def test_a_missing_mpremote_is_a_failure_too(self):
+        import subprocess
+        old = subprocess.run
+
+        def gone(*a, **k):
+            raise FileNotFoundError("mpremote")
+        subprocess.run = gone
+        try:
+            code, text = libra_update.run_mpremote(["exec", "1"])
+        finally:
+            subprocess.run = old
+        self.assertEqual(code, 1)
+        self.assertIn("could not run mpremote", text)
+
+
 class Update(unittest.TestCase):
     def setUp(self):
         self.root = make_tree({"lb_a.py": "x = 1\n", "ucompat.py": "y = 2\n", "pico/pico_main.py": "z = 3\n",

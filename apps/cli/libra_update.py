@@ -91,7 +91,12 @@ def mpremote_cmd(port):
 
 def run_mpremote(args, port=None, timeout=120):
     """Run mpremote; returns (exit code, stdout). Replaceable in tests."""
-    p = subprocess.run(mpremote_cmd(port) + list(args), capture_output=True, text=True, timeout=timeout)
+    try:
+        p = subprocess.run(mpremote_cmd(port) + list(args), capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:  # a hung copy: report it like any failure so it gets its one retry
+        return 1, "mpremote timed out after %d s" % timeout
+    except OSError as e:  # mpremote itself missing or not runnable
+        return 1, "could not run mpremote: %s" % (e,)
     return p.returncode, p.stdout.replace("\r", "") + ("\n" + p.stderr if p.returncode else "")
 
 
