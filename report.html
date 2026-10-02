@@ -3646,20 +3646,41 @@ desktop app. A web version using Web Bluetooth or WebUSB would avoid app stores 
 works in Chromium-based browsers and not on iOS Safari <span class="badge text-bg-warning verify">verify</span>. The BLE protocol must
 be specified before the app is built.</p>
 <h3 id="repository-layout" class="h5 mt-4 mb-2 text-primary-emphasis">Repository layout</h3>
+<p><strong>The ecosystem this repository serves.</strong>
+- Libra is a security device that is <strong>not your phone</strong>. The phone is treated as an insecure device, unsuitable for security purposes, and that is a selling point.
+- The phone pairs with Libra. When Libra is plugged in, it handles logins as a trusted second factor (2FA). It is also an OTP token generator, like an authenticator app but not on the phone.
+- It is a social device too: the social side governs a <strong>web-of-trust</strong> model that can be used for something legitimate.
+- It is minimal on purpose, to keep the emphasis on the person at the other end of the internet.</p>
 <pre class="diagram"><code>libra/
-  LIBRA.md  report.html  tools/     design document, built report, build scripts
-  hardware/            KiCad project, BOM, enclosure, CERN-OHL
-    pcb/  enclosure/  devkit/
-  firmware/
-    components/        one ESP-IDF component per module above
-      boot profile session keystore crypto time oath openpgp fido
-      usb storage vault
-      qr qrparse xch ble fp ui input backup power drivers
-    main/
-    test/              host-side unit tests
-  companion/           backup, time sync, keyserver sync, update
-  spec/                key-exchange protocol, backup format
+  README.md
+  LIBRA.md  report.html  software-map.html   the design and its generated views
+  tools/                 scripts that build those views
+  spec/                  protocols and formats, with test vectors
+  hardware/              v0 wiring and BOM; v1 KiCad project and enclosure (CERN-OHL)
+    v0/  v1/
+  firmware/              ESP-IDF project
+    components/          one per module in the software map
+      boot profile session keystore crypto time oath openpgp fido xch backup
+      qr qrparse ble usb storage vault ui
+      display input camera fp haptic rtc power se sdcard usbhost
+    main/  test/
+  apps/                  untrusted clients
+    shared/              one codec for spec/ (language undecided)
+    cli/                 v0 host tool
+    desktop/  mobile/    reserved
+  services/              reserved; only if a hosted piece is chosen
+  test/                  interoperability and hardware-in-loop tests
 </code></pre>
+<p>Rules:</p>
+<ol>
+<li><strong>Spec first.</strong> Anything that crosses a boundary (device and host, device and phone, device and device) is written in <code>spec/</code> with test vectors before it is coded. Firmware and every app implement the same spec and pass the same vectors.</li>
+<li><strong>Apps are untrusted.</strong> Nothing under <code>apps/</code> holds device secrets. It handles public data and ciphertext, plus the recovery key only if the user opts in (<a href="#companion-app">Companion app</a>).</li>
+<li><strong>One codec.</strong> <code>apps/shared</code> implements the spec once; the command-line tool, the desktop app and the mobile apps all use it.</li>
+<li><strong>Generated files are committed.</strong> <code>report.html</code> and <code>software-map.html</code> are built from <code>LIBRA.md</code> and <code>tools/softmap_data.py</code>; a check that they are up to date can be added to CI later.</li>
+<li><strong>Licences per directory.</strong> Hardware is intended as CERN-OHL; firmware, apps and spec as open licences. None is chosen yet, and each directory gets its own when it is. A reused firmware base (the pico-fido family) fixes some of the firmware choice (<a href="#modules">Modules</a>).</li>
+<li><strong>Version documents.</strong> v0 is described in <code>LIBRA.md</code>. The v1 design gets its own document next to it, and <code>hardware/v1/</code> holds its files.</li>
+</ol>
+<p>Open: the language of <code>apps/shared</code>; how the host tool reaches the device; whether the web of trust needs any hosted service (the <code>services/</code> slot is kept empty); and how a phone relays logins to Libra <span class="badge text-bg-warning verify">verify</span>.</p>
 <h3 id="vault-data-path" class="h5 mt-4 mb-2 text-primary-emphasis">Vault data path</h3>
 <figure class="figure w-100 diagram-fig"><pre class="mermaid">flowchart LR
     d3_HOST[Host computer&lt;br/&gt;mounts a USB drive] &lt;--&gt;|&quot;USB mass storage&lt;br/&gt;plaintext 512 B blocks&quot;| d3_MSC[MSC class driver]

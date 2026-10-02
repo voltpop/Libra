@@ -1498,21 +1498,44 @@ works in Chromium-based browsers and not on iOS Safari *(verify)*. The BLE proto
 be specified before the app is built.
 
 ### Repository layout {#repository-layout}
+
+**The ecosystem this repository serves.**
+- Libra is a security device that is **not your phone**. The phone is treated as an insecure device, unsuitable for security purposes, and that is a selling point.
+- The phone pairs with Libra. When Libra is plugged in, it handles logins as a trusted second factor (2FA). It is also an OTP token generator, like an authenticator app but not on the phone.
+- It is a social device too: the social side governs a **web-of-trust** model that can be used for something legitimate.
+- It is minimal on purpose, to keep the emphasis on the person at the other end of the internet.
+
 ```
 libra/
-  LIBRA.md  report.html  tools/     design document, built report, build scripts
-  hardware/            KiCad project, BOM, enclosure, CERN-OHL
-    pcb/  enclosure/  devkit/
-  firmware/
-    components/        one ESP-IDF component per module above
-      boot profile session keystore crypto time oath openpgp fido
-      usb storage vault
-      qr qrparse xch ble fp ui input backup power drivers
-    main/
-    test/              host-side unit tests
-  companion/           backup, time sync, keyserver sync, update
-  spec/                key-exchange protocol, backup format
+  README.md
+  LIBRA.md  report.html  software-map.html   the design and its generated views
+  tools/                 scripts that build those views
+  spec/                  protocols and formats, with test vectors
+  hardware/              v0 wiring and BOM; v1 KiCad project and enclosure (CERN-OHL)
+    v0/  v1/
+  firmware/              ESP-IDF project
+    components/          one per module in the software map
+      boot profile session keystore crypto time oath openpgp fido xch backup
+      qr qrparse ble usb storage vault ui
+      display input camera fp haptic rtc power se sdcard usbhost
+    main/  test/
+  apps/                  untrusted clients
+    shared/              one codec for spec/ (language undecided)
+    cli/                 v0 host tool
+    desktop/  mobile/    reserved
+  services/              reserved; only if a hosted piece is chosen
+  test/                  interoperability and hardware-in-loop tests
 ```
+
+Rules:
+1. **Spec first.** Anything that crosses a boundary (device and host, device and phone, device and device) is written in `spec/` with test vectors before it is coded. Firmware and every app implement the same spec and pass the same vectors.
+2. **Apps are untrusted.** Nothing under `apps/` holds device secrets. It handles public data and ciphertext, plus the recovery key only if the user opts in ([Companion app](#companion-app)).
+3. **One codec.** `apps/shared` implements the spec once; the command-line tool, the desktop app and the mobile apps all use it.
+4. **Generated files are committed.** `report.html` and `software-map.html` are built from `LIBRA.md` and `tools/softmap_data.py`; a check that they are up to date can be added to CI later.
+5. **Licences per directory.** Hardware is intended as CERN-OHL; firmware, apps and spec as open licences. None is chosen yet, and each directory gets its own when it is. A reused firmware base (the pico-fido family) fixes some of the firmware choice ([Modules](#modules)).
+6. **Version documents.** v0 is described in `LIBRA.md`. The v1 design gets its own document next to it, and `hardware/v1/` holds its files.
+
+Open: the language of `apps/shared`; how the host tool reaches the device; whether the web of trust needs any hosted service (the `services/` slot is kept empty); and how a phone relays logins to Libra *(verify platform support for BLE security keys)*.
 
 ### Vault data path {#vault-data-path}
 
